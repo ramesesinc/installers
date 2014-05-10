@@ -8,44 +8,40 @@
 	app.loader=com.rameses.osiris2.client.OsirisAppLoader
 	readTimeout=50000
 	connectionTimeout=5000
-	
-	image.server.host=@imagehost:8070
-	image.server.context=etracs25
-	image.server.cluster=osiris3	
 </env>
 <modules>
  
 	<!-- core libraries -->
-	<module file="core/osiris2-client-themes.jar" version="2.0"/>
-	<module file="core/osiris2-client-ui.jar" version="2.0"/>
-	<module file="core/osiris2-framework.jar" version="2.0"/>
-	<module file="core/osiris2-report.jar" version="2.0"/>
-	<module file="core/rameses-client-ui.jar" version="2.0"/>
-	<module file="core/rameses-client-ui-bio.jar" version="2.0"/>
-	<module file="core/rameses-common2.jar" version="2.0"/>
-	<module file="core/rameses-custom-impl.jar" version="2.0"/>
+	<module file="core/osiris2-client-themes.jar" version="1.0"/>
+	<module file="core/osiris2-client-ui.jar" version="1.0"/>
+	<module file="core/osiris2-framework.jar" version="1.0"/>
+	<module file="core/osiris2-report.jar" version="1.0"/>
+	<module file="core/rameses-client-ui.jar" version="1.0"/>
+	<module file="core/rameses-client-ui-bio.jar" version="1.0"/>
+	<module file="core/rameses-common2.jar" version="1.0"/>
+	<module file="core/rameses-custom-impl.jar" version="1.0"/>
  
 	<!-- shared libraries -->
-	<module file="shared/client-system.jar" version="2.0"/>
-	<module file="shared/client-ui-extended.jar" version="2.0"/>
-	<module file="shared/rameses-client-menu.jar" version="2.0"/>
-	<module file="shared/rameses-client-report.jar" version="2.0"/>
-	<module file="shared/rameses-enterprise-accounts.jar" version="2.0"/>
-	<module file="shared/rameses-enterprise-inventory.jar" version="2.0"/>
-	<module file="shared/rameses-enterprise-admin.jar" version="2.0"/>
-	<module file="shared/rameses-enterprise-entity.jar" version="2.0"/>
-	<module file="shared/rameses-enterprise-treasury.jar" version="2.0"/>
-	<module file="shared/rameses-rules-mgmt.jar" version="2.0"/>
-	<module file="shared/rameses-client-notification.jar" version="2.0"/>
+	<module file="shared/client-system.jar" version="1.0"/>
+	<module file="shared/client-ui-extended.jar" version="1.0"/>
+	<module file="shared/rameses-client-menu.jar" version="1.0"/>
+	<module file="shared/rameses-client-report.jar" version="1.0"/>
+	<module file="shared/rameses-enterprise-accounts.jar" version="1.0"/>
+	<module file="shared/rameses-enterprise-inventory.jar" version="1.0"/>
+	<module file="shared/rameses-enterprise-admin.jar" version="1.0"/>
+	<module file="shared/rameses-enterprise-entity.jar" version="1.0"/>
+	<module file="shared/rameses-enterprise-treasury.jar" version="1.0"/>
+	<module file="shared/rameses-rules-mgmt.jar" version="1.0"/>
+	<module file="shared/rameses-client-notification.jar" version="1.0"/>
  
 	<!-- main app libraries -->
-	<module file="rameses-etracs-main.jar" version="2.0"/>
-	<module file="rameses-gov-etracs-rptis.jar" version="2.0"/>
-	<module file="rameses-gov-etracs-rptis-report.jar" version="2.0"/>
-	<module file="rameses-gov-etracs-signatory-template.jar" version="2.0"/>
-	<module file="rameses-gov-lgu-treasury.jar" version="2.0"/>
-	<module file="rameses-gov-treasury.jar" version="2.0"/>
-	<module file="rameses-gov-etracs-city.jar" version="2.0"/>
-	<module file="rameses-gov-etracs-entity.jar" version="2.0"/>
+	<module file="rameses-gov-etracs-rptis.jar" version="1.0"/>
+	<module file="rameses-gov-etracs-rptis-report.jar" version="1.0"/>
+	<module file="rameses-gov-etracs-signatory-template.jar" version="1.0"/>
+	<module file="rameses-gov-etracs-bpls.jar" version="1.0"/>
+	<module file="rameses-gov-lgu-treasury.jar" version="1.0"/>
+	<module file="rameses-gov-treasury.jar" version="1.0"/>
+
+	@additional_modules
 </modules>
 </app>

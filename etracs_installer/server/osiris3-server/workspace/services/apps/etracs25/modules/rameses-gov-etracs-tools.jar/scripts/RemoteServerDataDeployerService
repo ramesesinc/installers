@@ -1,0 +1,62 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+import com.rameses.util.*;
+
+class RemoteServerDataDeployerService 
+{
+	@PersistenceContext('main')
+	def em
+ 
+	@ActiveDB('remoteserver_data')	
+	def adb
+
+	@Service('CollectionTypeService')
+	def collTypeSvc
+
+	@Service('RevenueItemAccountService')
+	def revSvc
+
+	@Service('UserAdminService')
+	def userSvc
+
+	@Service('CashBookService')
+	def cashbookSvc
+
+	@ProxyMethod
+	public void deployUpdates( entity ) {
+		entity.data.funds.each{
+			def fund = EntityUtil.mapToField(it)
+			try{
+				adb.insertFund(fund)
+			}
+			catch(e){
+			}
+		}
+		entity.data.colltypes.each{
+			collTypeSvc.save(it);
+		}
+		entity.data.revitems.each{
+			try{
+				revSvc.create(it.item);
+			}
+			catch(e){
+				revSvc.update(it.item);
+			}
+		}
+		entity.data.users.each{ 
+			userSvc.save(it.user);
+			it.cashbooks.each{ cb ->
+				cb = EntityUtil.mapToField(cb)
+				cashbookSvc.save(cb);
+			}
+			it.memberships.each{m->
+				try{
+					m = EntityUtil.mapToField(m)
+					adb.insertUserMembership(m)
+				}
+				catch(e){}
+			}
+		}
+	}
+}

@@ -1,0 +1,64 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+import com.rameses.util.*
+
+
+class CollectionPostingNgasInterceptor
+{ 
+	@ActiveDB('collectionposting_ngas')
+	def adb 
+
+	@Env
+	def env 
+ 
+	@Service('DateService')
+	def dtSvc
+
+
+	@After(pattern="CollectionPostingService.open", eval="#{result.type == 'NGAS'}")
+	public void interceptOpen( evt ) {
+		def entity = evt.result
+		entity.deposits = adb.getDeposits(entity).each{it.included = true}
+		entity.migratedremittances = adb.getMigratedRemittances(entity).each{it.included = true}
+	}
+
+
+	@After(pattern="CollectionPostingService.init", eval="#{result.type == 'NGAS'}")
+	public void init( evt  ) {
+		def entity = evt.result 
+		entity.adjtxndate 	= dtSvc.add(dtSvc.parse('yyyy-MM-dd', entity.txndate), '1d')
+		entity.deposits = adb.getOpenDeposits(entity).each{ it.included = true }
+		entity.migratedremittances = adb.getOpenMigratedRemittances(entity).each{ it.included = true }
+
+		def totaldeposit = entity.deposits.amount.sum()
+		if (totaldeposit == null)  totaldeposit = 0.0 
+		def totalremittance = entity.migratedremittances.amount.sum();
+		if (totalremittance == null)  totalremittance = 0.0 
+		entity.amount = totaldeposit + totalremittance
+	}
+
+
+	@After(pattern="CollectionPostingService.post", eval="#{result.type == 'NGAS'}")
+	public void post( evt ) {
+		def entity = evt.result
+		entity.state = 'POSTED'
+		entity.dtposted = dtSvc.serverDate
+		entity.postedby_objid = entity.postedby.objid
+		entity.postedby_name = entity.postedby.name
+		entity.postedby_title = entity.postedby.title
+		adb.insertRevenue(entity)
+		
+		def deposits = entity.deposits.findAll{it.included == true}
+		deposits.each{ d ->
+			adb.insertDeposit([objid:d.objid, parentid:entity.objid])
+			adb.insertRevenueItems([objid:d.objid, parentid:entity.objid])
+		}
+		def migratedremittances = entity.migratedremittances.findAll{it.included == true }
+		migratedremittances.each{m -> 
+			adb.insertTracsRemittance([objid:m.objid, parentid:entity.objid])
+			adb.insertTracsRevenueItems([objid:m.objid, parentid:entity.objid])
+		}
+	}
+
+}

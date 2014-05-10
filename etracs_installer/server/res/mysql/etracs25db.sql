@@ -19,7 +19,7 @@
 -- Current Database: `etracs25`
 --
 
-CREATE DATABASE /*!32312 IF NOT EXISTS*/ `@dbname` /*!40100 DEFAULT CHARACTER SET latin1 */;
+CREATE DATABASE IF NOT EXISTS `@dbname`;
 USE `@dbname`;
 
 --
@@ -1470,10 +1470,7 @@ CREATE TABLE `businessrequirement` (
   `code` varchar(50) default NULL,
   `title` varchar(255) default NULL,
   `type` varchar(50) default NULL,
-  `department` varchar(50) default NULL,
-  `account_objid` varchar(50) default NULL,
-  `account_code` varchar(50) default NULL,
-  `account_title` varchar(50) default NULL,
+  `handler` varchar(50) default NULL,
   PRIMARY KEY  (`objid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
@@ -1822,6 +1819,30 @@ CREATE TABLE `cashreceipt_largecattleownership` (
   `ownerbrand` varchar(20) default NULL,
   PRIMARY KEY  (`objid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+--
+-- Table structure for table `cashreceipt_largecattletransfer`
+--
+
+DROP TABLE IF EXISTS `cashreceipt_largecattletransfer`;
+CREATE TABLE `cashreceipt_largecattletransfer` (
+  `objid` varchar(50) NOT NULL,
+  `purchasedby` varchar(200) default NULL,
+  `price` decimal(16,2) default NULL,
+  `citymuni` varchar(100) default NULL,
+  `province` varchar(100) default NULL,
+  `sex` varchar(10) default NULL,
+  `age` int(11) default NULL,
+  `municipalitybrand` varchar(20) default NULL,
+  `ownerbrand` varchar(20) default NULL,
+  `certificateno` varchar(30) default NULL,
+  `issuedate` date default NULL,
+  `issuedcitymuni` varchar(100) default NULL,
+  `issuedprovince` varchar(100) default NULL,
+  `attestedby` varchar(100) default NULL,
+  `treasurer` varchar(100) default NULL,
+  PRIMARY KEY  (`objid`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
 --
 -- Table structure for table `cashreceipt_marriage`
@@ -6292,4 +6313,4 @@ CREATE TABLE `workflowstate` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2014-05-09 11:20:53
+-- Dump completed on 2014-05-10 10:27:05

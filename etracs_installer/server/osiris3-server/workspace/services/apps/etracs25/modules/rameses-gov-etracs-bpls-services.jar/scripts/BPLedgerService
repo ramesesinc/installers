@@ -1,0 +1,64 @@
+import com.rameses.annotations.*;
+import com.rameses.services.extended.*;
+import java.rmi.server.*;
+
+class BPLedgerService {
+
+	@ActiveDB("bpledger")
+	def em;
+
+	/****************************************
+	* called by Application or Business when
+	* posting receivables
+	****************************************/
+	@ProxyMethod
+	public def postReceivables( o ) {
+		if(!o.items)
+			throw new Exception("Error in BPLedger.postReceivables. Must have at least one item");
+		for(item in o.items) {
+			em.create( item, "receivable");
+		}
+		return o;	
+	}
+
+	@ProxyMethod
+	public def revertReceivables( o ) {
+		if(!o.applicationid)
+			throw new Exception("Applicationid is required");
+		def m = [applicationid: o.applicationid];
+		def list = em.getHasPaidReceivable(m);
+		if(list.size()>0)
+			throw new Exception("Cannot reverse this application because payment has already been made");
+		em.removeReceivablesForApplication(m);
+	}
+
+	@ProxyMethod
+	public def getReceivables( o ) {
+		return em.getReceivables(o);	
+	}
+
+	@ProxyMethod
+	public def getPayments( o ) {
+		return em.getPayments(o);	
+	}
+
+	@ProxyMethod
+	public def rebuildLedger( o ) {
+		//this rebuilds the lines of business, app infos and assessment infos
+		
+		return em.getReceivables(o);	
+	}
+
+	@ProxyMethod
+	public def getUnpaidBalance( o ) {
+		//check if there is balance per ledger or per line of business
+		if(!o.businessid) throw new Exception("businessid is required");
+		o.filter = '';
+		if( o.lobid  ) {
+			o.filter = '''  AND br.lob_objid=$P{lobid} ''';
+		}
+		return em.findHasBalance( o )?.balance;	
+	}
+
+
+}

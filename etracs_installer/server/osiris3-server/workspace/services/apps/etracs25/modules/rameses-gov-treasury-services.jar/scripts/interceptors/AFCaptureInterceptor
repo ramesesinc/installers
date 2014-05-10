@@ -1,0 +1,32 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+class AFCaptureInterceptor { 
+	
+	@PersistenceContext('main')
+	def em
+
+	@After(pattern="AFSerialControlService.changeMode", eval="#{args[0].txnmode == 'CAPTURE'}")
+	public void postToAFSerialCapture( def evt ) { 
+		em.sqlContext.createExecutor("insert into afserialcapture(controlid) values ( '${evt.args[0].objid}') ").execute() 
+	}
+
+	@After(pattern="BatchCaptureCollectionService.submitForOnlineRemittance")
+	public void deleteToAFSerialCapture( def evt ) { 
+		em.sqlContext.createExecutor("delete from afserialcapture where controlid='${evt.args[0].controlid}'").execute() 
+	}	
+
+	@After(pattern="AFSerialControlService.changeMode", eval="#{args[0].txnmode != 'CAPTURE'}")
+	public void deleteAFSerialCapture( def evt ) { 
+		em.sqlContext.createExecutor("delete from afserialcapture where controlid='${evt.args[0].objid}'").execute() 
+	}	
+
+	@After(pattern="AFSerialControlService.unassign")
+	public void deleteAFSerialCaptureOnUnnassign( def evt ) { 
+		em.sqlContext.createExecutor("delete from afserialcapture where controlid='${evt.args[0].objid}'").execute() 
+	}	
+
+}

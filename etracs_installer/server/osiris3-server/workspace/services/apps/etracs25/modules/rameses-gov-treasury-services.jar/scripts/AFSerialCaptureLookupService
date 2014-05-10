@@ -1,0 +1,30 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+
+public class AFSerialCaptureLookupService {
+	
+	@ActiveDB("afserial_control")
+	def em
+
+	@Env
+	def env
+
+	@ProxyMethod
+	public def getColumns( def p ) {
+		return [
+			[name:"collector.name", caption:"Collector"],
+			[caption:"Start Series", type:"label", expression:"#{item.startseries.toString().padLeft(item.serieslength, '0')}"],
+			[caption:"End Series", type:"label", expression:"#{item.endseries.toString().padLeft(item.serieslength, '0')}"],
+			[name:"stub", caption:"Stub No"],
+		];	
+	}	
+
+	@ProxyMethod 
+	public def getList(def params ) {
+		params.searchtext = params.searchtext ? params.searchtext : "%"
+		params.userid = env.USERID
+		params._pagingKeys = "a.controlid";
+		return em.getAssigneeControlForBatchList( params );
+	} 
+
+}

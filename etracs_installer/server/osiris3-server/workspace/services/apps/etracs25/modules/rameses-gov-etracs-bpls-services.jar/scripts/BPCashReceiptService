@@ -1,0 +1,138 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*
+
+public class BPCashReceiptService  {
+
+	@Service("BPBillingRuleService")
+	def billingSvc;
+	
+	@Service("BPApplicationService")
+	def appSvc;
+	
+	@ActiveDB("revenueitem")
+	def revitem;
+
+	@Service("NumberService")
+	def numberSvc;
+
+	@ActiveDB("business")
+	def biz;
+
+	@ActiveDB("collectiontype")
+	def collectionType;
+
+	@ActiveDB("bpledger")
+	def bpLedger;
+
+	@ProxyMethod
+	public def findByBarcode(o) {
+		def prefix = o.prefix;
+		def barcode = o.barcode;
+
+		def m = null;
+		if( barcode.indexOf("-") < 0) {
+			m = biz.findByBINForReceipt( [bin: barcode] );
+			if(!m)
+				throw new Exception("BIN " + barcode + " does not exist!");
+		}
+		else {
+			m = biz.findByAppnoForReceipt( [appno: barcode ]);
+			if(!m)
+				throw new Exception("App No " + barcode + " does not exist!");
+		}
+		m.collectiontype = collectionType.findCollectionTypeByBarcode([barcode: prefix]);
+		if(!m.collectiontype)	
+			throw new Exception("Collection type not found with barcode prefix " + prefix + ". Please check collection type and register barcode prefix");
+		return m; 
+	}
+
+	@ProxyMethod
+	public def getBilling(def o) throws Exception {
+		/*	
+		//throw new Exception("Must get taxfees from ledger not from the application");
+		m.application = appSvc.open( [objid: o.applicationid ]); 
+		m.application.taxfees = bpLedger.getUnpaidReceivables([businessid:m.application.businessid]);
+		*/
+
+		def p = [businessid: o.businessid];
+		p.filter = ''' br.businessid=$P{businessid} ''';
+		def list = bpLedger.getUnpaidForBilling(p);
+		list.each {
+			if(it.lob?.objid && !it.lob?.assessmenttype)
+				throw new Exception("Please rebuild the ledger. There is no line of business type for " + it.lob.name);
+		}
+
+		def payoption = [type: o.payoption, qtr:o.qtr, partialpmt: o.partialpmt ];
+		def billdate = o.billdate;
+		def z = billingSvc.getBillItems(list, billdate, payoption);	
+		//check if there is a line w/o assessment type
+
+		def result = [:];	
+		result.billitems = z.items;
+		result.total_q1 = z.total_q1;
+		result.total_q2 = z.total_q2;
+		result.total_q3 = z.total_q3;
+		result.total_q4 = z.total_q4;
+		result.total = z.total;
+		result.taxcredit = z.taxcredit;
+
+		//we need to separate first principal, surcharge, interest accounts
+		def amts = z.items.findAll{it.amtdue > 0};
+		def surcharges = z.items.findAll{ it.surcharge > 0 };
+		def interests = z.items.findAll{ it.interest > 0 };
+
+		//check if each item, principal, surcharge, interest has an account. if not, throw error
+		def itemList = [];
+		def acctCollector = { itm, acct, amt, qtr ->
+			def mx = [:];
+			mx.lob = itm.lob;
+			mx.account = acct;
+			mx.amount = amt;
+			mx.qtr = qtr;
+			itemList << mx;
+		}
+		for( a in amts ) {
+			def acct = revitem.findAccount( [objid: a.account.objid ] );
+			if( !acct ) throw new Exception("Account not found for " + a.account.title);
+			if(a.discount==null) a.discount = 0;
+			acctCollector( a, acct, numberSvc.round(a.amtdue - a.discount), a.qtr );
+		}
+		for(a in surcharges ) {
+			def acct = revitem.findAccount( [objid: a.surchargeaccount.objid ] );
+			if( !acct ) throw new Exception("Surcharge account not found for " );	
+			acctCollector( a, acct, a.surcharge, a.qtr );
+		}
+		for(a in interests) {
+			def acct = revitem.findAccount( [objid: a.interestaccount.objid ] );
+			if( !acct ) throw new Exception("Interest account not found ");
+			acctCollector( a, acct, a.interest, a.qtr );
+		}
+
+		//create the receipt items.
+		result.receiptitems = [];		
+		def grps = itemList.groupBy { [it.lob, it.account ] };
+		grps.each { k,v->
+			def mm = [objid: 'REVITEM'+new UID()];
+			mm.lob = k[0];
+			mm.item = k[1];
+			mm.amount = numberSvc.round( v.sum{ it.amount } );
+			mm.fromqtr = v.min{ it.qtr }?.qtr;
+			mm.toqtr = v.max{ it.qtr }?.qtr;
+			def sbuilder = new StringBuilder();
+			if( mm.lob?.name ) {
+				sbuilder.append( mm.lob.name + " ");
+			}
+			if( mm.fromqtr > 0 ) {
+				sbuilder.append( "(Q"+mm.fromqtr);
+				if( mm.fromqtr!=mm.toqtr ) sbuilder.append( "-"+mm.toqtr ); 
+				sbuilder.append( ")" );
+			}
+			mm.remarks = sbuilder.toString();
+			result.receiptitems << mm;
+		}
+		return  result;
+	}
+
+}

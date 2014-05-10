@@ -1,0 +1,100 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+
+class AFSerialControlService {
+
+	@ActiveDB("afserial_control")
+	def em;
+
+	@Env
+	def env;
+
+	@ProxyMethod
+	public def getOpenIssuanceList(def p) {
+		def m = [af:p.formno,  txnmode:p.txnmode]; 
+		if(!p.collector) 
+			m.userid = env.USERID;
+		else	
+			m.userid = p.collector.objid
+		return em.getOpenIssuanceList(m);
+	}
+
+	/*************************************************************************
+	* just added this so as not to affect select af for cashreceipt_select_af
+	*************************************************************************/
+	@ProxyMethod
+	public def getCollectorOpenIssuanceList(def p) {
+		def m = [af:p.formno,  txnmode:p.txnmode]; 
+		if(!p.collector) 
+			m.userid = env.USERID;
+		else	
+			m.userid = p.collector.objid
+		return em.getCollectorOpenIssuanceList(m);
+	}
+
+	@ProxyMethod
+	public def getAssigneeIssuanceList(def p) {
+		def m = [:];
+		m.af = p.formno
+		if(!p.collector) 
+			m.userid = env.USERID;
+		else	
+			m.userid = p.collector.objid
+		return em.getAssigneeIssuanceList(m);
+	}
+
+	@ProxyMethod
+	public void activateControl(def p) {
+		def m = [:];
+		m.objid = p.objid;
+		m.txnmode = p.txnmode;
+		if(!m.txnmode)
+			throw new Exception("Please indicate txn mode first");
+
+		m.afid = p.formno;
+		if(!p.collector) 
+			m.userid = env.USERID;
+		else	
+			m.userid = p.collector.objid
+			
+		def z = em.findActiveControlForActivation(m);
+		if(z) {
+			em.deactivateControl( [objid: z.controlid] )
+		}
+		int test = em.reactivateControl(m);
+		if(test==0) {
+			em.activateControl(m);
+		}
+	}
+
+
+	@ProxyMethod
+	public void deactivateControl(def p) {
+		em.deactivateControl(p);
+	}
+
+	@ProxyMethod
+	public void changeMode(def p) {
+		em.changeMode(p);
+	}
+
+	@ProxyMethod
+	public void assignToSubcollector(def p) {
+		def m = [:];
+		m.objid = p.objid;
+		m.assigneeid = p.assignee.objid;
+		m.assigneename = p.assignee.name;
+
+		//check first if afcontrol table exists. If not we need to create it.
+		def test = em.reactivateAssignSubcollector(m);
+		if(test==0) {
+			em.activateAssignSubcollector(m);
+		}
+	}
+
+	@ProxyMethod
+	public void unassign(def p) {
+		em.unassignsubcollector([controlid:p.objid]) 
+	}
+}

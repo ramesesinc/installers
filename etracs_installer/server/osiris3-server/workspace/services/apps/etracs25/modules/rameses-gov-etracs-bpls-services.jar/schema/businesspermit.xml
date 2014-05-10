@@ -1,0 +1,37 @@
+<schema>
+	
+	<element tablename="businesspermit">
+		<field name="objid" primary="true"/>
+		<field name="state" required="true"/>
+		<field name="businessid" required="true"/>
+		<field name="activeyear" required="true"/>
+		<field name="version" required="true"/>
+		<field name="permitno" required="true"/>
+		<field name="permittype" required="true"/>
+
+		<field name="apptype" required="true"/>
+		<field name="bin" required="true"/>
+		<field name="pin"/>
+		<field name="ownername" required="true"/>
+
+		<field name="owneraddress" required="true"/>
+		<field name="tradename" required="true"/>
+		<field name="businessaddress" required="true"/>
+		<field name="businessname" required="true"/>
+		<field name="orgtype" required="true"/>
+
+		<field name="dtissued" required="true" />
+		<field name="issuedby_objid" required="true"/>
+		<field name="issuedby_name" required="true"/>
+		<field name="expirydate" required="true" />
+		<field name="remarks" />
+		<complex name="lobs" type="list" serializer="default" required="true"/>
+		<complex name="payments" type="list" serializer="default" required="true"/>
+
+		<complex name="appinfos" type="list" serializer="default" required="true"/>
+		<complex name="assessmentinfos" type="list" serializer="default" required="true"/>
+
+
+	</element>	
+
+</schema>

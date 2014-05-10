@@ -1,0 +1,88 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+class BusinessTaskService  {
+
+	@ActiveDB("bpapplication")
+	def em;
+
+	
+	@Service("DateService")
+	def dateSvc;
+
+	@Env
+	def env;
+
+
+	@ProxyMethod
+	public def startTask( def m ) {
+		if(!m.appid) throw new Exception("App id is required");
+		if(!m.state) throw new Exception("State is required");
+		if(!m.channel) throw new Exception("Channel is required");
+		def tsk = [:];
+		tsk.objid = "BPTSK"+new UID();
+		tsk.assignee = m.assignee;
+		tsk.startdate = dateSvc.serverDate; 
+		tsk.applicationid = m.appid;
+		tsk.state = m.state;
+		tsk.channel = m.channel;
+		tsk.message = m.message;
+		tsk.sender = [objid:env.USERID, name:env.USER];
+		em.create( tsk, "task" );
+		em.updateTask( [taskid: tsk.objid, objid:m.appid] );
+		return tsk;
+	}
+
+	@ProxyMethod
+	public def startSubTask( def m ) {
+		if(!m.appid) throw new Exception("App id is required in subtask" );
+		if(!m.state) throw new Exception("State is required  in subtask");
+		if(!m.channel) throw new Exception("Channel is required  in subtask");
+		if(!m.parentid) throw new Exception("parentid is required  in subtask");
+		if(!m.assignee) throw new Exception("assignee is required  in subtask");
+		if(!m.action) throw new Exception("action is required  in subtask");
+		if(!m.message) throw new Exception("message is required  in subtask");
+		def tsk = [:];
+		tsk.objid = "BPSUBTSK"+new UID();
+		tsk.assignee = m.assignee;
+		tsk.startdate = dateSvc.serverDate; 
+		tsk.applicationid = m.appid;
+		tsk.state = m.state;
+		tsk.channel = m.channel;
+		tsk.message = m.message;
+		tsk.parentid = m.parentid;
+		tsk.action = m.action;
+		tsk.sender = [objid:env.USERID, name:env.USER];
+		em.create( tsk, "task" );
+		return tsk;
+	}
+
+	@ProxyMethod
+	private def endTask( def m ) {
+		if(!m.taskid) throw new Exception("Taskid is required");
+
+		//do not allow to close the task if there are still open subtasks.
+		def openTasks = em.getOpenSubTasks(m);
+		if( openTasks ) {
+			def buff = new StringBuffer();
+			buff.append( "Cannot close task since there are still unfinished tasks assigned to the ff. users\n");
+			openTasks.each {
+				buff.append( it.assignee.name + "\n"); 
+			}
+			throw new Exception( buff.toString() );
+		}
+		def oldTask = em.read( [objid:m.taskid], "task" );
+		if(!oldTask)
+			throw new Exception("Task not found : " + m.taskid);
+		oldTask.enddate = dateSvc.serverDate;
+		if( m.assignee ) {
+			oldTask.assignee = m.assignee;
+		}
+		em.update( oldTask, "task");
+		return oldTask;
+	}
+
+
+}

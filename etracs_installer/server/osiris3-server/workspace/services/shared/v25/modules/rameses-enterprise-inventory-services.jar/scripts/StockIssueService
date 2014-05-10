@@ -1,0 +1,72 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+class StockIssueService extends ActiveCrudService {
+
+	@ActiveDB("stockissue")
+	def em;
+
+	@Service("SequenceService") 
+	def seqSvc;
+
+	@Service("DateService") 
+	def dateSvc;
+
+	@Service("StockRequestService")
+	def reqSvc
+
+	@ActiveDB("stockitem")
+	def stockitem;
+
+	@ActiveDB("afserial_inventory")
+	def afInventorySvc;
+
+	@ActiveDB("cashticket_inventory")
+	def cashticketSvc;
+
+	@Env
+	def env;
+
+	void beforeCreate( def o ) {
+		// o.requester = [objid:env.USERID, name:env.FULLNAME, title:env.JOBTITLE];
+		o.org = [objid:env.ORGID, name:env.ORGNAME];
+		o.user = [objid:env.USERID, name:env.FULLNAME];
+		o.issueno = "IRAF" + seqSvc.getNextFormattedSeries("IRAF");
+		o.dtfiled = dateSvc.serverDate;
+		o.state = "CLOSED";
+	}
+	
+	void afterCreate( o ) { 
+		o.items.each {
+			it.objid = "STKISSITEM"+new UID();
+			it.parentid = o.objid;
+			em.create( it, "item" );
+		}
+		em.closeRequest( [objid: o.request.objid] );
+	}
+
+	void afterOpen( o ) {
+		o.items = em.getItems(o).each{
+			def aftype = stockitem.findItemType(it.item);
+			if(! aftype) aftype = [ type : 'AFSERIAL']
+
+			def params = [afid: it.item.objid, stockissueid: it.parentid ]
+			if(aftype.type == 'AFSERIAL') 
+				it.items = afInventorySvc.getAFSerialDetails(params ) 
+			else {
+				it.items = 	cashticketSvc.getCashticketDetails(params ).each { 
+					it.startstub = it.remarks[it.remarks.indexOf('-') - 1]
+					it.endstub = it.remarks[it.remarks.indexOf('-') + 1]
+				}
+			}
+			it.handler =  aftype.type.toLowerCase() 
+		}
+		o.request = reqSvc.open( o.request )
+	}
+
+
+
+}

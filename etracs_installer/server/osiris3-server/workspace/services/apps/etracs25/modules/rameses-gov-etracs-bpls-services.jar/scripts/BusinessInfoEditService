@@ -1,0 +1,56 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BusinessInfoEditService  {
+
+	@ActiveDB("business")
+	def business;
+
+	@ActiveDB("bpapplication")
+	def application;
+
+
+	@ProxyMethod
+	public def update(o) {
+		def biz = business.read( [objid:o.objid] );
+		biz.owner = o.owner;
+		biz.orgtype = o.orgtype;
+		biz.businessname = o.businessname;
+		biz.businessaddress = o.businessaddress;
+		biz.tradename = o.tradename;
+		biz.lobs = o.lobs;
+		business.update(biz);
+		if( o.currentapplicationid!=null ) {
+			def m = application.read( [objid:o.currentapplicationid] );
+			m.owner = o.owner;
+			m.orgtype = o.orgtype;
+			m.businessname = o.businessname;
+			m.businessaddress = o.businessaddress;
+			m.tradename = o.tradename;
+			application.update(m);
+		}
+
+	}
+
+
+	@ProxyMethod
+	public def updateLobs(o) {
+		if( o.lobs ) {
+			business.removeBusinessLOB( [objid: o.objid] );
+			for(x in o.lobs) {
+				x.businessid = o.objid;
+				business.save(x, "lob")
+			}
+		}
+		if( o.currentapplicationid!=null ) {
+			def m = application.read( [objid:o.currentapplicationid] );
+			m.lobs = o.lobs;
+			application.update(m);
+		}
+
+	}
+
+
+}

@@ -1,0 +1,24 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+class CashReceiptMiscPosService 
+{
+	@ActiveDB('miscpos_receipt')
+	def adb 
+
+
+	/* param -> [formno, revtype] */
+	@ProxyMethod
+	public def findCollectionTypeByRevType(param){
+		return adb.findCollectionTypeByRevType(param)
+	}
+
+
+	/* param -> [formno, revtype] */
+	@ProxyMethod
+	public def findRevenueItem(param){
+		return adb.findRevenueItem(param)
+	}
+}

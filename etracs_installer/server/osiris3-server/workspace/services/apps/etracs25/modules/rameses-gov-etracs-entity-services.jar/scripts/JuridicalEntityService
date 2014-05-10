@@ -1,0 +1,95 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import java.rmi.server.UID;
+import com.rameses.util.*;
+import com.rameses.io.*;
+import com.rameses.services.extended.*;
+
+class JuridicalEntityService extends ActiveCrudListService {
+
+	@ActiveDB("entityjuridical")
+	def	em; 
+
+	@ActiveDB("entity")
+	def	entity; 
+
+	@Env
+	def env;
+
+	@Service('DateService')
+	def dtSvc;
+
+	@Service("LOVService")
+	def LOV;
+
+	@Service('SequenceService')
+	def seqSvc;
+
+	def INDEX_CHAR_COUNT = 300;
+
+	String pagingKeys = 'e.objid'
+
+	@ProxyMethod
+	public def getColumns( params ) {
+		return [
+			[name:'name', caption:'Company Name'], 
+			[name:'address.text', caption:'Company Address'], 
+			[name:'dtregistered', caption:'Date Registered', width:100, resizable:false, alignment:'center'], 
+			[name:'orgtype', caption:'Org.Type'], 
+			[name:'nature', caption:'Business Nature']
+		]; 
+	}
+
+	void updateName( o ) {
+		def len = o.name.length()
+		if (len > INDEX_CHAR_COUNT) len = INDEX_CHAR_COUNT
+		o.entityname = o.name.substring(0, len);		
+	}
+
+	public void beforeCreate(o) {
+		o.entityno = "J"+seqSvc.getNextFormattedSeries( "JURIDICAL" ); 
+		updateName(o);
+		if(!o.address.objid) o.address.objid = 'ENTADDR'+new UID();
+		o.address.parentid = o.objid;		
+		entity.create( o );
+	}
+
+	public void afterCreate(o) { 
+		entity.create( o.address, "address" ); 
+	}
+
+	public void beforeUpdate(o) {
+		updateName(o);
+		if(!o.address.objid) o.address.objid = 'ENTADDR'+new UID();
+		o.address.parentid = o.objid;		
+		entity.update( o );
+		entity.save( o.address, "address" ); 
+	}
+
+	public void afterRemoveEntity(o) {
+		entity.delete( o );
+	}
+
+	public void afterOpen( o ) {
+		def z = entity.read( o );
+		o.putAll( z );
+		if( o.orgtype ) {
+			o.orgtypename = LOV.ORG_TYPES.get( o.orgtype );
+		}	
+		if(o.address?.objid) {
+			def a = entity.read( o.address, "address");
+			o.address.putAll(a);
+		}
+		else {
+			o.address = [:];	
+		}
+	}
+
+	@ProxyMethod
+	public def getPositionList(o) {
+		o.searchtext += "%";
+		o._limit = 8;
+		return em.getPositionList(o)*.position;
+	}
+
+}

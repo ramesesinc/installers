@@ -1,0 +1,103 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BPApplicationListService extends ActiveCrudListService {
+
+	@ActiveDB("bpapplication")
+	def em;
+
+	@Service("DateService")
+	def dateSvc;
+
+	@Env
+	def env;
+
+	@ProxyMethod
+	public def getNodes(o) {
+		//def icount =  em.findMyTaskListCount([assigneeid: env.USERID])?.icount;
+		//String taskTitle="<html>My Tasks <font bgcolor=red color=white>&nbsp;"+icount+"&nbsp;</font></html>";
+		String taskTitle = "My Tasks";
+		return [
+		   [name:'mytask', caption: taskTitle, leaf:true, allowSearch:true],
+		   [name:'assign-assessor', caption:'For Assessment(Unassigned)', leaf:true, folder:true, allowSearch:true],
+		   [name:'assessment', caption:'For Assessment', leaf:true, folder:true, allowSearch:true],
+		   [name:'approval', caption:'For Approval', leaf:true, folder:true, allowSearch:true],
+		   [name:'payment', caption:'For Payment', leaf:true, folder:true, allowSearch:true],
+		   [name:'release', caption:'For Release', leaf:true, folder:true, allowSearch:true],
+		   [name:'completed', caption:'Finished', leaf:true, folder:true, allowSearch:true],
+		   [name:'cancelled', caption:'Cancelled', leaf:true, folder:true, allowSearch:true],
+		];
+	}	
+
+	@ProxyMethod
+	public def getColumns(o) {
+		def cols = [];
+		cols <<	[name:'appno', caption:'App No', width:120, resizable:false];
+		cols <<	[name:'apptype', caption:'App Type', width:80, resizable:false];
+		cols <<	[name:'appdate', caption:'App Date', width:80, resizable:false, type:'date'];
+		cols << [name:'bin', caption:'BIN', width:120, resizable:false];
+		cols <<	[name:'businessname', caption:'Business Name'];
+		cols <<	[name:'businessaddress.text', caption:'Business Address'];
+		cols <<	[name:'owner.name', caption:'Owner'];
+
+		if( o.name!='completed') {
+			cols <<	[name:'assignee.name', caption:'Assigned To', width:80, resizable:false];
+			cols <<	[name:'appstate', caption:'State', width:80, resizable:false];
+		}
+
+		if(o.name == 'mytask') {
+			cols <<	[name:'message', caption:'Message'];
+		}
+		else if(o.name == 'wpermit') {
+			cols <<	[name:'permitno', caption:'Permit No', resizable:false];
+			cols <<	[name:'expirydate', caption:'Expiry date', resizable:false];
+		}
+		cols <<	[name:'state', caption:'State'];
+		return cols;
+	}
+
+	void beforeList(o) {
+		def activeYear = dateSvc.serverYear;
+		o._pagingKeys = "b.objid";
+		o.filter = '';
+		switch(o.name) {
+			case 'search':
+				if( !o.searchtext || o.searchtext == '%' ) o.searchtext = "?";
+				break;
+				
+			case 'mytask':
+				o._listMethod = "getOpenTaskList";
+				o.assigneeid = env.USERID;
+				o.filter = ''' AND b.assignee_objid = $P{assigneeid} '''
+				break;
+
+			//--------------- processing--------------------	
+			case 'assign-assessor':
+			case 'assessment':	
+			case 'approval':
+			case 'payment':
+			case 'release':
+				o.appstate = o.name.toUpperCase();
+				o.filter = ''' AND b.appstate = $P{appstate} ''';
+				if(o.apptype) o.filter += ''' AND b.apptype=$P{apptype} ''';
+				o.filter += ''' AND b.state = 'PROCESSING' ''';
+				break;		
+
+			//--------------- active--------------------	
+			case 'completed':
+				o.filter = ''' AND b.state ='COMPLETED' ''';
+				break;	
+
+			case 'cancelled':
+				o.filter = ''' AND b.state='CANCELLED' ''';
+				break;
+
+			default:
+				break;
+		}
+	}
+
+
+}

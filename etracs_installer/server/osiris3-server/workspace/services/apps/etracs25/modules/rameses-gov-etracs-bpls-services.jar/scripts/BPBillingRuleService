@@ -1,0 +1,253 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+import com.rameses.rules.common.*;
+import bpls.facts.*;
+import bpls.actions.*;
+
+import org.apache.commons.beanutils.BeanUtils;
+
+public class BPBillingRuleService  {
+
+	@ActiveDB("bpbilling")
+	def em;
+
+	@ActiveDB("revenueitem")
+	def ba;
+
+	@Resource("RuleService")
+	def ruleSvc;
+
+	@ActiveDB("rule")
+	def ruleDB;
+
+	@Service("DateService")
+	def dateSvc;
+
+	@Service("NumberService")
+	def numberSvc;
+
+	@ActiveDB("bpexpirydate")
+	def expiryDate;
+
+	@Service("BPFactBuilder")
+	def appFactBuilder;
+
+
+	@Env
+	def env;
+
+	String RULESET = "bpbilling";
+
+	def buildActions(def req) {
+		def addItems = { tf, request ->
+			request.items << [
+				year: tf.year,
+				qtr: tf.qtr,
+				lob: (tf.lob) ? [objid: tf.lob.objid, name:tf.lob.name ] : null,
+				account: tf.account,
+				taxfeetype: tf.type,
+				amtdue: tf.amtdue,
+				surcharge: tf.surcharge,
+				interest: tf.interest,
+				discount: tf.discount,
+				total: tf.total,
+				paypriority: tf.paypriority,
+				duedate: tf.deadline,
+				balance: tf.balance,
+				receivableid: tf.receivableid,
+
+				//this is the full amt.
+				amount: tf.amount,
+				amtpaid: tf.amtpaid,
+				interestaccount: tf.interestaccount,
+				surchargeaccount: tf.surchargeaccount,
+				application: [objid:tf.application.objid, appno:tf.application.appno]
+			];	
+		}	
+		def actions = new RuleAction();
+		actions.addCommand( "set_qtr_deadline", new SetQtrDeadline( request:req, dateSvc:dateSvc, expiryDate:expiryDate ));
+		actions.addCommand( "split_by_qtr", new SplitByQtr( request:req, NS:numberSvc ));
+		actions.addCommand( "calc_surcharge", new CalcSurcharge( request:req, NS:numberSvc, BA:ba ));
+		actions.addCommand( "calc_interest",  new CalcInterest( request:req, NS:numberSvc, BA:ba ));
+		actions.addCommand( "calc_discount",  new CalcDiscount( request:req, NS:numberSvc ));
+		actions.addCommand( "collect_full",  new CollectFullPayment( request:req, addItems: addItems ));
+		actions.addCommand( "collect_partial",  new CollectPartialPayment( request:req, addItems: addItems, NS:numberSvc ));
+		actions.addCommand( "collect_excess",  new CollectExcess( request:req, NS:numberSvc ));
+		actions.addCommand( "print_test", new PrintTest());
+		return actions;
+	}
+
+	/**********************************************
+	* The parameter here is the application
+	* billdate is the billing date
+	* payoption (has type:full or qtr, qtr: if qtr )
+	* 
+	**********************************************/
+	private def buildFacts(def list) {
+		def factMap = [:];
+		list.each {
+			def app = it.application;
+			def fapp = factMap[app.objid];
+			if( !fapp ) {
+				fapp = new BPApplication();
+				fapp.objid = app.objid;
+				fapp.appno = app.appno;
+				fapp.appyear = app.appyear;
+				fapp.apptype = app.apptype;
+				factMap.put( app.objid, fapp );
+				if(!fapp.apptype)
+					throw new Exception("App type must be provided");
+			}
+			def lob = it.lob;
+			def flob = null;
+			if( lob?.objid ) {
+				flob = factMap[lob.objid];
+				if(!flob) {
+					flob = new LOB();
+					flob.application = fapp;
+					flob.objid = lob.objid;
+					flob.lobid = lob.lobid;
+					flob.assessmenttype = lob.assessmenttype;
+					flob.name = lob.name;
+					flob.classification = lob.classification?.objid;
+					factMap.put( lob.objid, flob);
+					if( !flob.assessmenttype )
+						throw new Exception("LOB assessment type must be provided");
+				}
+			}
+			def tf = new BillItem();
+			if(it.amtpaid==null) it.amtpaid = 0;
+			tf.acctid = it.account.objid;
+			tf.amount = numberSvc.round(it.amount);
+			tf.amtpaid = numberSvc.round(it.amtpaid);
+			tf.amtdue = numberSvc.round(it.amount - it.amtpaid);
+			tf.total = tf.amtdue;
+			tf.account = it.account;
+			tf.lob = flob;
+			tf.application = fapp;
+			tf.objid = it.objid;
+			//x.objid is the receivable id.
+			tf.receivableid = it.objid;
+			tf.qtr = 0;
+			tf.year = app.appyear;
+			tf.type = it.taxfeetype;
+
+			if(tf.type == "TAX") {
+				tf.paypriority = 3;
+			}
+			else if(tf.type == "REGFEE") {
+				tf.paypriority = 2;
+			}
+			else {
+				tf.paypriority = 1;
+			}	
+			if( tf.amtdue > 0 ) {
+				factMap.put(it.objid, tf);
+			}
+		}	
+		return factMap.values();
+	}
+
+
+	/********************************************************
+	* parameter format:
+	* list: objid, account : [title, taxfeetype, objid, department, code, interest:[objid,title,code],
+           surcharge:[objid,title,code]],
+		   lob : [objid, lobid, name, classification: [objid,name], assessmenttype]
+		   application: [objid, appyear]
+		   taxfeetype,paymentmode,assessedvalue,amount,amtpaid  
+	* 	   
+	*********************************************************/
+	@ProxyMethod
+	public def getBillItems(def list, def _billdate, def payoption) throws Exception {
+		if(!_billdate)
+			throw new Exception("Please specify billdate");
+		if(!payoption)
+			throw new Exception("Please specify payoption");
+		if( !payoption.type )	
+			throw new Exception("Please provide a payoption type")
+		if( payoption.type == 'FULLQTR' && !payoption.qtr ) {
+			throw new Exception("Please provide a qtr in payoption qtr")
+		}	
+		
+		//this will be used in excess payment. do not remove.
+		def billdt = dateSvc.parse("yyyy-MM-dd", _billdate );
+
+		def factList = buildFacts( list );
+		def facts = [];
+		facts.addAll( factList );
+
+		def billdate = new BillDate( billdt );
+		facts << new EffectiveDate( billdt );
+		facts << new CurrentDate( dateSvc.serverDate );
+		facts << billdate;
+		
+		//payoption....
+		if( payoption.partialpmt > 0 ) {
+			facts << new Payment( payoption.partialpmt );	
+		}
+		facts << new PayOption(payoption.type, ((payoption.qtr==null)?0:payoption.qtr) );
+		
+		def request = [items: [], facts: facts ];
+		def actions = buildActions( request );
+
+		//******************* EXECUTE RULES *******************************************
+		def grps = ruleDB.getRulegroups( [ruleset: RULESET] );
+		for( g in grps ) { 
+			ruleSvc.execute( RULESET, facts, actions, g.name );
+		}
+		ruleSvc.execute( RULESET, facts, actions, "apply-payment" );
+		//****************************************************************************
+		
+		//sort the output
+		def items = request.items?.sort{ it.duedate };
+		def result = [items: items];	
+
+		//calculate quarter totals
+		def fq1 = items.findAll{ it.qtr <= 1}?.sum{ it.total }; 
+		result.total_q1 = (fq1==null) ? 0.0 : fq1;
+
+		def fq2 = items.findAll{ it.qtr == 2}?.sum{ it.total }; 
+        result.total_q2 = (fq2==null) ? 0.0 : fq2;
+
+        def fq3 = items.findAll{ it.qtr == 3}?.sum{ it.total };  
+        result.total_q3 = (fq3==null) ? 0.0 : fq3;
+
+ 		def fq4 = items.findAll{ it.qtr == 4}?.sum{ it.total };   
+        result.total_q4 = (fq4==null) ? 0.0 : fq4; 
+
+        def amtdue = items.sum{ it.amtdue }; 
+        result.total_amtdue = (amtdue==null) ? 0.0 : amtdue; 
+
+		def disc = items.sum{ it.discount }; 
+        result.total_discount = (disc==null) ? 0.0 : disc; 
+
+        def surch = items.sum{ it.surcharge }; 
+        result.total_surcharge = (surch==null) ? 0.0 : surch; 
+
+        def interest = items.sum{ it.interest }; 
+        result.total_interest = (interest==null) ? 0.0 : interest; 
+
+ 		def tot = items.sum{ it.total };   
+        result.total = (tot==null) ? 0.0 : tot; 
+
+		result.validUntil = billdate.validUntil;
+		result.taxcredit = request.taxcredit;
+
+		//organize by account
+		def acctitems = request.items?.sort{ it.duedate };
+
+		/*
+		acctitems.each {
+			println "***********";
+			it.each{ k,v->
+				println k +"="+v;
+			}
+		}
+		*/
+		return result;
+	}
+
+}	

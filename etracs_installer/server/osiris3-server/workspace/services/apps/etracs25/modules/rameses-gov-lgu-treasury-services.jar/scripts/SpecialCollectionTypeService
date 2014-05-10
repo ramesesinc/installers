@@ -1,0 +1,68 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+class SpecialCollectionTypeService {
+
+	@PersistenceContext("main")
+	def em;
+
+	@ProxyMethod
+	public def open( collectiontypeid ) {
+		def qry = em.sqlContext.createNamedQuery('specialcollectiontype:read')
+					.setParameter('collectiontypeid', collectiontypeid )
+		qry.setPagingKeys("ss.objid")
+		return qry.singleResult	
+	}
+	
+	@ProxyMethod
+	public def getList( collectiontypeid ) {
+		return em.sqlContext.createNamedQuery('specialcollectiontype:read')
+					.setParameter('collectiontypeid', collectiontypeid )
+					.resultList	
+	}
+
+	@ProxyMethod
+	public void create( ct ) {
+		em.sqlContext.createNamedExecutor('specialcollectiontype:create')
+			.setParameter('objid', ct.objid )
+			.setParameter('collectiontypeid', ct.collectiontypeid)
+			.setParameter('item_objid', ct.item.objid)
+			.setParameter('amount', ct.amount)
+			.setParameter('revtype', ct.revtype)
+			.execute()	
+	}
+
+	@ProxyMethod
+	public void update( ct ) {
+		if(open(ct.objid)) {
+			em.sqlContext.createNamedExecutor('specialcollectiontype:update')
+				.setParameter('objid', ct.specialacctobj )
+				.setParameter('item_objid', ct.item.objid)
+				.setParameter('amount', ct.amount)
+				.execute()	
+		} else {
+			ct.specialacctobj = "CI" + new java.rmi.server.UID()
+			create(ct)
+		}
+	}
+
+	@ProxyMethod
+	public def delete( objid ) {
+		return em.sqlContext.createNamedExecutor('specialcollectiontype:delete')
+					.setParameter('objid', objid )
+					.execute()
+	}
+
+
+	@ProxyMethod
+	public void updateItem( ct ) {
+		em.sqlContext.createNamedExecutor('specialcollectiontype:update')
+			.setParameter('objid', ct.objid)
+			.setParameter('item_objid', ct.item.objid)
+			.setParameter('amount', ct.amount)
+			.execute()	
+	}
+	
+}

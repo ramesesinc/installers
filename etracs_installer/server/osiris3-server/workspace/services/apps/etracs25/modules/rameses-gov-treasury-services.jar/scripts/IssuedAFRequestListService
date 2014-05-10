@@ -1,0 +1,38 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class IssuedAFRequestListService {
+	
+	@ActiveDB("stockissue")
+	def em;
+
+
+	@ProxyMethod
+	public def getColumns(def params ) {
+		return [
+				[name:'issueno', caption:'Issue No'],
+				[name:'dtfiled', caption:'Date Issued'],
+				[name:'request.reqno', caption:'Request No'],
+				[name:'issueto.name', caption:'Issued To'],
+				[name:'issueto.title', caption:'Issued To Title'],
+				[name:'user.name', caption:'Issued By'],
+		]
+	}
+
+	@ProxyMethod 
+	public def getList( def params )  {
+		params.state  = 'CLOSED'
+		if(! params.searchtext ) return em.getList(params)
+
+		params.searchtext = params.searchtext + '%'
+		def list = em.getListbyIssueNo(params)
+		if( !list) list = em.getListbyReqNo(params)
+		if( !list) list = em.getListbyRequester(params)
+		
+		return list;
+	}
+
+
+}

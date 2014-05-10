@@ -1,0 +1,58 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BusinessPermitListService extends ActiveCrudListService {
+
+	@ActiveDB("businesspermit")
+	def em;
+
+	@ProxyMethod
+	public def getColumns(o) {
+		def cols = [];
+		cols << [name:'permitno', caption:'Permit No', width:120, resizable:false];
+		cols << [name:'version', caption:'Ver', width:40, resizable:false];
+		cols << [name:'dtissued', caption:'Date Issued', width:120, resizable:false];
+		cols << [name:'bin', caption:'BIN', width:120, resizable:false];
+		cols <<	[name:'ownername', caption:'Owner'];
+		cols <<	[name:'tradename', caption:'Trade Name'];
+		cols <<	[name:'businessaddress.text', caption:'Business Address'];
+		cols <<	[name:'expirydate', caption:'Expiry date', resizable:false];
+		return cols;
+	}
+
+	@ProxyMethod
+	public def getNodes(o) {
+		return [
+		   [name:'active', caption:'Active', leaf:true, folder:true, allowSearch:true],
+		   [name:'inactive', caption:'Inactive', leaf:true, folder:true, allowSearch:true],
+		];
+	}	
+
+	void beforeList(o) {
+		o._pagingKeys = "p.objid";
+		o.filter = '';
+		switch(o.name) {
+			case 'search':
+				if( !o.searchtext || o.searchtext == '%' ) o.searchtext = "?";
+				break;
+				
+			//--------------- processing--------------------	
+			case 'active':
+				o.state = 'ACTIVE';
+				o.filter = ''' AND p.state = $P{state}  ''';
+				break;
+
+			case 'inactive':	
+				o.state = 'ACTIVE';
+				o.filter = ''' AND NOT(p.state = $P{state}) ''';
+				break;
+
+			default:
+				break;
+		}
+	}
+
+
+}

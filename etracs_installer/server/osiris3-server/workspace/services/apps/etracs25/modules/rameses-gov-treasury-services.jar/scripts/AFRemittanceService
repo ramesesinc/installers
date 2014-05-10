@@ -1,0 +1,38 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+class AFRemittanceService  {
+
+	@ActiveDB("remittance_af")
+	def em;
+
+	@Env
+	def env;
+
+	@ProxyMethod
+	public def getRemittedAFSerial(o) {
+		def m = [objid: o.objid];
+		return em.getRemittedAFSerial(m);
+	}		
+
+	@ProxyMethod
+	public def getRemittedCashTickets(o) {
+		def m = [objid: o.objid];
+		return em.getRemittedCashTickets(m);
+	}
+
+	@ProxyMethod
+	public def getUnremittedAFSerial(o) {
+		def m = [collectorid: env.USERID];
+		return em.getUnremittedAFSerial(m);
+	}		
+
+	@ProxyMethod
+	public def getUnremittedCashTickets(o) {
+		def m = [collectorid: env.USERID];
+		return em.getUnremittedCashTickets(m);
+	}
+
+}

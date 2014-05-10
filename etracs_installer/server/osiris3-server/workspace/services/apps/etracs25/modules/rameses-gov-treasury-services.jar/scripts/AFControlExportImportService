@@ -1,0 +1,85 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+import com.rameses.util.*
+
+
+class AFControlExportImportService  
+{ 
+	@ActiveDB('afcontrol_export_import')
+	def adb 
+
+	@Env
+	def env 
+
+	@ProxyMethod
+	public def getAfSerialControlInfo(afserial){
+		def params = [controlid:afserial.objid]
+		def control = adb.findAfSerialControl(params)
+		control.startseries = afserial.startseries 
+		control.endseries = afserial.endseries
+		control.stub = afserial.stub 
+		control.inventory = adb.findAfSerialInventory(params)
+		control.inventorydetails = adb.getAfSerialInventoryDetails(params)
+		adb.updateAfSerialModeToRemote(params)
+		return control
+	}
+
+
+	@ProxyMethod
+	public def getCashTicketInfo( ct) {
+		def param = [controlid:ct.controlid]
+		def control = adb.findCashTicketControl(param)
+		control.inventory = adb.findCashTicketInventory(param)
+		control.inventorydetails = adb.getCashTicketInventoryDetails(param)
+		control.afid = control.inventory.afid
+		return control
+	}
+
+
+	@ProxyMethod
+	public void postImportedAfSerial( control ) {
+		checkExistingAfSerial(control)
+
+		adb.insertAfSerialInventory( EntityUtil.mapToField(control.inventory) )
+		adb.insertAfSerialControl( EntityUtil.mapToField(control) )
+		control.inventorydetails.each{
+			adb.insertAfSerialInventoryDetails( EntityUtil.mapToField(it) )
+		}
+	}
+
+
+	@ProxyMethod
+	public def getCashTickets(){
+		return adb.getCashTickets([ownerid: env.USERID])
+	}
+
+	@ProxyMethod
+	public void postImportCashTicket(control){
+		def param = [controlid:control.controlid]
+		def ct = adb.findCashTicketControl(param)
+		if (ct) {
+			adb.updateCashTicketInventory(EntityUtil.mapToField(control.inventory))
+			adb.updateCashTicketControl(EntityUtil.mapToField(control))
+		}
+		else{
+			adb.insertCashTicketInventory( EntityUtil.mapToField(control.inventory) )
+			adb.insertCashTicketControl( EntityUtil.mapToField(control) )
+		}
+
+		def detail = adb.findCashTicketInventoryDetailCount(param)
+		if (detail.cnt == 0){
+			control.inventorydetails.each{
+				adb.insertCashTicketControlDetail( EntityUtil.mapToField(it) )
+			}
+		}
+	}
+
+	void checkExistingAfSerial(control){
+		def afc = adb.findAfSerialControl(control)
+		if (afc)
+			throw new Exception('Series has already been posted.')
+	}
+
+
+}

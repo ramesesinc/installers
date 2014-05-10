@@ -1,0 +1,28 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+public class AFInventoryService  {
+	
+	@ActiveDB("afinventoryservice")
+	def em
+
+	@ProxyMethod
+	public def getListByAf( params ) {
+		return em.getList( params );
+	}
+
+	@ProxyMethod
+	public def getDetails( params) {
+		if( params.aftype =='SERIAL') return em.getDetailsSERIAL( params)
+
+		return em.getDetailsCASHTICKET( params );
+	}
+
+	@ProxyMethod 
+	public def getRepsCenters( ) {
+		return em.getRespCenters([:]);
+	}
+}

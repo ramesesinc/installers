@@ -1,0 +1,90 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.common.*
+
+
+/****************************************************
+* this is a temporary solution to allow a collector
+* to start transaction
+*****************************************************/
+class AFSerialCollectorMigrationService  { 
+
+
+	@Service("AFSerialInventoryService")
+	def afSerialSvc;
+
+	@ActiveDB("afserial_control")
+	def afControl;
+
+	@Service("SequenceService") 
+	def seqSvc;
+
+	@PersistenceContext("main")
+	def em; 
+
+	/**********************************************************
+	* pass the ff. parameters:
+	*    collector [objid, name]
+	*    afid, 
+	*    startseries
+	*    suffix
+	*    prefix
+	*	 endseries
+	*    currentseries
+	*	 stub
+	*    reason
+	* 	 refno = transaction ref no. just create one
+	*    refid = objid of transaction
+	*    reftype = type of transaction
+	*    refdate = date of transaction
+	*    remarks
+	**********************************************************/
+	@ProxyMethod
+	public void post( def m ) {
+		def d = em.sqlContext.createQuery('select objid from afserial_inventory where endseries=?')
+				  .setParameter(1, m.endseries)
+				  .resultList 
+		if(d ) throw new Exception("Series ${m.startseries} already exists. ");
+
+		if(! m.refno) m.refno = 'SYSTEM' + seqSvc.getNextFormattedSeries("AFSERIALFORWARD")
+
+		def sb = new StringBuffer();
+		if(!m.collector?.objid) sb.append( "collector.objid" );
+		if(!m.collector?.name) sb.append( "collector.name" );
+		if(!m.afid) sb.append( "afid" );
+		if(!m.startseries) sb.append( "startseries" );
+		if(!m.endseries) sb.append( "endseries" );
+		if(!m.currentseries) sb.append( "currentseries" );
+		if(!m.stub) sb.append( "stub" );
+		if(!m.reason) sb.append( "reason" );
+		if(!m.refno) sb.append( "refno" );
+		if(!m.refid) sb.append( "refid" );
+		if(!m.reftype) sb.append( "reftype" );
+		if(!m.refdate) sb.append( "refdate" );
+		if(!m.remarks) sb.append( "remarks" );
+
+		def head = [:];
+		head.refid = m.refid;
+		head.reftype = m.reftype;	
+		head.refno = m.refno;
+		head.refdate = m.refdate;
+	    head.startstub = m.stub;
+	    head.endstub = m.stub;
+	    head.afid = m.afid;
+	    head.currentstub = m.stub;
+		head.startseries = m.currentseries;
+		head.endseries = m.endseries;
+		head.currentseries = m.currentseries;
+		head.prefix = m.prefix;
+		head.suffix = m.suffix;
+		head.qty = m.endseries - m.currentseries + 1;
+		head.unit = 'STUB';
+		head.remarks = m.remarks;
+		head.respcenter = m.collector;
+		if(!head.respcenter.type) head.respcenter.type = 'COLLECTOR';
+		head.txntype = "COLLECTOR BEG.BAL.";
+		def q = afSerialSvc.postReceipt(head);
+		afControl.createControl( [objid: q.objid] );
+	}
+}

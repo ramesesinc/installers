@@ -1,0 +1,68 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BusinessCaptureService {
+
+	@Service("DateService")
+	def dateSvc;
+
+	@Service("BusinessInfoService")
+	def infoSvc;
+
+	@ProxyMethod
+	public def getSources() {
+		return [];
+	}	
+
+	@ProxyMethod
+	public def search(o) {
+		println o;
+		return [];
+	}	
+
+	@ProxyMethod
+	public def getInfo(o) {
+		return [:];
+	}	
+
+	@ProxyMethod
+	public def saveNew(o) {
+		o.state = 'CAPTURED';
+		o.apptype = 'CAPTURE';
+		def biz = infoSvc.create(o);
+		biz.lobs = o.lobs;
+		biz.lobs.each {
+			it.objid = "BUSLOB"+new UID();	
+			it.businessid = biz.objid;	
+			it.iyear = biz.activeyear;
+		};
+		infoSvc.activate( biz );
+		return biz;
+	}	
+
+	@ProxyMethod
+	public def register(o) {
+		o.state = 'CAPTURED';
+		o.apptype = 'CAPTURE';
+		def biz = infoSvc.create(o);
+		biz.lobs = o.lobs;
+		biz.lobs.each {
+			if(!it.lob?.objid) 
+				throw new Exception("Please map all line of business");
+				
+			it.objid = "BUSLOB"+new UID();	
+			it.businessid = biz.objid;	
+			it.iyear = biz.activeyear;
+			it.lobid = it.lob.objid;
+			it.name = it.lob.name;
+			it.assessmenttype = 'RENEW';
+		};
+		infoSvc.activate( biz );
+		em.insertBusinessID(o);	
+		return biz;
+	}	
+
+
+}

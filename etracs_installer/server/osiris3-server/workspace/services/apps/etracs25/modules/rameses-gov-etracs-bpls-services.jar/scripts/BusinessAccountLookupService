@@ -1,0 +1,32 @@
+import com.rameses.annotations.*;
+import com.rameses.services.extended.*;
+
+class BusinessAccountLookupService extends ActiveCrudListService {
+
+	@ActiveDB("businessaccount")
+	def em;
+
+	String listMethod = "getLookup";
+	String pagingKeys = "a.objid";
+
+	@ProxyMethod
+	public def getColumns( def p ) {
+		return [
+			[name:"code", caption:"Name"],
+			[name:"title", caption:"Caption"]
+		]
+	}
+
+	void beforeList(o) {
+		if(o._tag) {
+			o.taxfeetype = o._tag;
+			o._listMethod = "getLookup"
+		}
+		else if(o.department) {
+			o._listMethod = "getLookupByDepartment";
+		}
+		else
+			o._listMethod = "getList";	
+	}
+
+}

@@ -1,0 +1,57 @@
+<schema>
+	
+	<element name="receivable" tablename="bpreceivable">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="applicationid" />
+		<field name="iyear" required="true"/>
+		<field name="iqtr" />
+		<field name="account_objid" required="true"/>
+		<field name="account_title" required="true"/>
+		<field name="lob_objid" />
+		<field name="lob_name" />
+		<field name="amount" required="true"/>
+		<field name="amtpaid" required="true"/>
+		<field name="discount" required="true"/>
+		<field name="refid" />
+		<field name="reftype" />
+		<field name="department" />
+		<field name="remarks" />
+		<field name="taxfeetype" required="true"/>
+		<field name="lob_assessmenttype" />
+	</element>	
+
+	<element name="payment" tablename="bppayment">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="applicationid" />
+		<field name="payoption" />
+		<field name="qtr" />
+		<field name="refno" required="true"/>
+		<field name="refdate" required="true"/>
+		<field name="reftype" required="true"/>
+		<field name="refid" />
+		<field name="amount" required="true"/>
+		<field name="remarks" />
+		<field name="voided" required="true"/>
+	</element>	
+
+	<element name="paymentitem" tablename="bppayment_item">
+		<field name="objid" primary="true"/>
+		<field name="receivableid" required="true"/>
+		<field name="businessid" required="true"/>
+		<field name="paymentid" required="true"/>
+		<field name="iqtr" />
+		<field name="iyear"/>
+		<field name="amtpaid" required="true"/>
+		<field name="surchargepaid" required="true"/>
+		<field name="interestpaid" required="true"/>
+		<field name="discount" required="true"/>
+		<field name="account_objid" required="true"/>
+		<field name="account_code" required="true"/>
+		<field name="account_title" required="true"/>
+		<field name="lob_objid" />
+		<field name="lob_name" />
+	</element>	
+
+</schema>

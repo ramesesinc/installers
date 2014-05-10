@@ -1,0 +1,67 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+class CashTicketControlService {
+
+	@ActiveDB("cashticket_control")
+	def em;
+
+	@Env
+	def env;
+
+	@ProxyMethod
+	public def getControl(def p) {
+		def c = [afid: p.formno , ownerid: env.USERID];
+		def z = em.findOwnCashTicket(c);
+		if(!z)
+			throw new Exception("Cash ticket not available");
+		return z;	
+	}
+
+	@ProxyMethod
+	public def getControlForCapture(def p) {
+		def c = [afid: p.formno , ownerid: p.collector.objid ];
+		def z = em.findOwnCashTicket(c);
+		if(!z)
+			throw new Exception("Cash ticket not available");
+		z.org = [objid:env.ORGID, name:env.ORGNAME]
+		z.user = [objid: env.USERID, name:env.USER]
+		return z;	
+	}
+
+	@ProxyMethod
+	public def getIssuances(def p) {
+		return  em.getSubcollectorIssuances([controlid: p.controlid]);	
+	}
+
+	@ProxyMethod
+	public def addSubCollector(def o) {
+		def m = [assigneeid: o.subcollector.objid, afid: o.formno];
+		def z = em.findIssuancesForCollector(m);
+		if(z.count>0)
+			throw new Exception("Subcollector is already assigned");
+
+		def p = [objid:'SCTCRL'+new UID()];
+		p.qtyin = 0;
+		p.controlid = o.controlid;
+		p.qtyissued = 0;
+		p.qtybalance = 0;
+		p.assignee = o.subcollector;
+		em.create(p);
+	}	
+
+	@ProxyMethod
+	public void assignAF(def o) {
+		em.updateQtyIn( [objid: o.toid, qty: o.qty ] );
+		em.updateQtyIssued( [objid: o.fromid, qty: o.qty ] );
+	}	
+
+	@ProxyMethod
+	public def removeAssignee(def o) {
+		em.updateQtyIn( [objid: o.toid, qty: o.qty ] );
+		em.delete([objid: o.fromid]);
+	}	
+}
+

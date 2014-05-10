@@ -1,0 +1,15 @@
+<schema>
+	<element tablename="lessor_building">
+		<field name="objid" primary="true"/>
+		<field name="name" required="true"/>
+		<field name="lessor_objid" required="true"/>
+		<field name="lessor_name" required="true"/>
+		<field name="lessor_address_text" required="true"/>
+		<field name="lessor_address_objid" />
+		<field name="address1" required="true"/>
+		<field name="address2" required="true"/>
+		<field name="barangay_objid" required="true"/>
+		<field name="barangay_name" required="true"/>			
+	</element>
+</schema>			
+

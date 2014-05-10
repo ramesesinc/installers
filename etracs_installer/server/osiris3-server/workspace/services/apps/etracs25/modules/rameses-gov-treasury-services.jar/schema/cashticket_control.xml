@@ -1,0 +1,15 @@
+<schema>
+
+	<element name="cashticket_control" tablename="cashticket_control">
+		<field name="objid" primary="true" />
+		<field name="controlid" required="true" />
+		<field name="assignee_objid" />
+		<field name="assignee_name"  />
+		<field name="qtyin" required="true" />
+		<field name="qtyissued" required="true" />
+		<field name="qtybalance" required="true" />
+		<field name="org_objid"  />
+		<field name="org_name" />
+	</element>
+
+</schema>

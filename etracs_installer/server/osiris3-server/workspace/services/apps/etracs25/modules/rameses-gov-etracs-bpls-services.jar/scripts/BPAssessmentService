@@ -1,0 +1,34 @@
+import com.rameses.annotations.*;
+import com.rameses.services.extended.*;
+
+class BPAssessmentService {
+
+	
+	@Service("BPAssessmentRuleService")
+	def assessmentSvc;
+
+	/*************************************************************************
+	* update info saves lines of business and fees   
+	**************************************************************************/
+	def callAssessmentRule(o) {
+		o.infos = o.appinfos + o.assessmentinfos;
+		return assessmentSvc.execute(o);		
+	}
+
+	@ProxyMethod
+	public def assess(o) {
+		def result = callAssessmentRule(o);
+		result.total_tax = result.totals.total_tax;
+		result.total_regfee = result.totals.total_regfee;
+		result.total_othercharge = result.totals.total_othercharge;
+		result.total = result.totals.total; 
+		return result;
+	}
+
+	@ProxyMethod
+	public def calculateTaxFees(o) {
+		return assessmentSvc.execute(o);		
+	}
+
+
+}

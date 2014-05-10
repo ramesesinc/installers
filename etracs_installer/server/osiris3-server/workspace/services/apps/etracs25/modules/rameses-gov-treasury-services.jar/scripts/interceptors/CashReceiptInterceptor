@@ -1,0 +1,122 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+
+class CashReceiptInterceptor {
+
+	@ActiveDB("afserial_control")
+	def em;
+
+	@ActiveDB("cashticket_control")
+	def cashTicketControl;
+
+	@Service("SequenceService")
+	def seqSvc;
+
+	@ActiveDB("cashticket")
+	def cashTicket;
+
+
+	@Env
+	def env;
+
+	/**********************************************************************
+	* SERIAL RECEIPTS
+	**********************************************************************/
+	@After(pattern="CashReceiptService.init", eval="#{result.formtype == 'serial'}", index=-1)
+	public def loadNextAFSeries(def evt) {
+		def result = evt.result;
+		def params = [afid:result.formno, userid: result.user.objid, txnmode:result.txnmode]; 
+		
+		def m = em.findActiveControlForCashReceipt( params );
+		if( !m) {
+			throw new Warning("select-afcontrol");
+		}
+		result.collector = m.collector;
+		result.subcollector = m.subcollector;
+		
+		result.stub = m.stub;
+		result.receiptno = ((m.prefix)?m.prefix:'') + m.currentseries.toString().padLeft(m.serieslength, '0') + ((m.suffix)?m.suffix:'');
+		result.controlid = m.controlid;
+		result.series = m.currentseries;
+
+	}
+
+	
+	@After(pattern="CashReceiptService.post", eval="#{result.formtype=='serial'}")
+	public def postAFControl(def evt) { 
+		def result = evt.result;
+		em.updateNextSeries([controlid:result.controlid]);
+
+		if( em.findActiveControrForDeactivation([controlid:result.controlid]) ) {
+			em.deactivateControl([objid:result.controlid])
+		}
+
+	}
+
+	@After(pattern="CashReceiptCancelSeriesService.post", eval="#{result.formtype=='serial'}")
+	public def postAFControLCancel(def evt) { 
+		def result = evt.result;
+		em.updateNextSeries([controlid:result.controlid]);
+
+		if( em.findActiveControrForDeactivation([controlid:result.controlid]) ) {
+			em.deactivateControl([objid:result.controlid])
+		}
+
+	}
+
+	/**********************************************************************
+	* CASH TICKET RECEIPTS
+	**********************************************************************/
+	@After(pattern="CashReceiptService.init", eval="#{result.formtype=='cashticket'}")
+	public def handleCashTicket(def evt) { 
+		//check if there is still inventory
+		def result = evt.result;
+		def params = [afid:result.formno, ownerid: env.USERID]
+		def m = cashTicketControl.findAvailableForCollector( params );
+		if(!m) {
+			throw new Exception("Not enough stock in inventory");
+		}
+		//download also the denomination so we can use it to calculate qty
+		result.collector = m.collector;
+		result.subcollector = m.subcollector;
+		result.controlid = m.controlid;
+		result.issuanceid = m.issuanceid;	
+		result.qtyissued = 0;
+		result.stub = result.formno;
+		result.denomination = m.denomination;
+		result.payer = [:];
+		result.paidby = result.collector.name;
+		result.paidbyaddress = "-";
+		result.series = 0;
+	}
+
+	//This is called prior to posting
+	@Before(pattern="CashReceiptService.post", eval="#{args[0].formtype=='cashticket'}")
+	public def postCashTicket(def evt) { 
+		def result = evt.args[0];
+		if(!result.qtyissued)
+			throw new Exception("Qty issued must be specified");
+
+		def ownerid = (result.subcollector?.objid) ? result.subcollector.objid : result.collector.objid;
+
+		def params = [afid:result.formno, ownerid: ownerid]
+		def test = cashTicketControl.findAvailableForCollector( params );
+		if(!test || test.qtybalance < result.qtyissued) {
+			throw new Exception("Not enough stock for qty specified");
+		}
+		result.receiptno = result.formno + seqSvc.getNextFormattedSeries(result.formno);
+		result.totalcash = result.amount;
+	}
+
+	@After(pattern="CashReceiptService.post", eval="#{result.formtype=='cashticket'}")
+	public def postCashTicketInfo(def evt) { 
+		def result = evt.result;
+		def m = [objid: result.objid, qtyissued: result.qtyissued];
+		cashTicket.create( m, "cashreceipt" );
+		cashTicketControl.updateControlBalance( [issuanceid:result.issuanceid, qtyissued:result.qtyissued] );
+	}
+
+
+
+}

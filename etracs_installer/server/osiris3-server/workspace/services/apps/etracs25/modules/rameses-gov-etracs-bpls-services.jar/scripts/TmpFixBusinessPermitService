@@ -1,0 +1,56 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class TmpFixBusinessPermitService  {
+
+	@PersistenceContext("main")
+	def em;
+
+	@Service("BusinessInfoService")
+	def bizInfo;
+
+	@ActiveDB("businesspermit")
+	def bppermit;
+
+	@ProxyMethod
+	public void startMigrate() {
+		println "start migrate";
+		def list = em.sqlContext.createQuery('select * from businesspermit WHERE payments IS NULL').resultList;
+		list.each {
+			println "processing " + it.businessid;
+			def b = bizInfo.open( [objid: it.businessid] );
+			b.lobs = bizInfo.getLobs( [objid:o.businessid] );
+
+			def p = bppermit.read( it.objid );	
+			p.ownername = b.owner.name;
+	 		p.tradename = b.tradename;
+	 		p.businessaddress = b.businessaddress;
+	 		p.bin = b.bin;
+	 		p.pin = b.pin;
+			p.apptype = b.apptype;
+ 			p.permitno = permitno;
+			p.lobs = b.lobs;
+	 		p.payments = bppermit.getPayments( [businessid: b.objid, activeyear: b.activeyear]);
+	 		p.payments.each {
+				if(it.payoption == 'FULLYEAR') {
+					it.particulars = 'full';
+				}
+				else if(it.payoption == 'FULLQTR') {
+					it.particulars = 'paid until qtr ' + it.qtr;
+				}
+				else if( it.qtr > 0 ) {
+					it.particulars = 'paid until qtr ' + it.qtr;
+				}
+				it.ordate = dateSvc.format( 'yyyy-MM-dd', it.ordate );
+	 		} 
+	 		bppermit.update( p );			
+		}
+
+		
+	}
+	
+	
+
+}

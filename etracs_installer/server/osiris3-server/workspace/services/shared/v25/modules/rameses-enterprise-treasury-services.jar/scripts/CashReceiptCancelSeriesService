@@ -1,0 +1,46 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+class CashReceiptCancelSeriesService  {
+
+	@PersistenceContext("main")
+	def em;
+
+	@Env
+	def env;
+	
+	@Service("DateService")
+	def dateService;
+	
+	
+	@ProxyMethod
+	public def post( def receipt ) {
+		receipt.paidby = "-"
+		receipt.paidbyaddress = "-"
+		receipt.txndate = dateService.serverDate;
+		receipt.state = "CANCELLED"
+		receipt.amount = 0.0 
+		receipt.totalcash = 0.0
+		receipt.totalnoncash=0.0
+		receipt.cashchange=0.0
+		receipt.totalcredit=0.0
+		em.create("cashreceipt", receipt );  
+
+
+		def v = [objid: "CRCT"+new UID()];
+		v.postedby = [ objid:env.USERID, name:env.FULLNAME ];
+		v.receiptid = receipt.objid;
+		v.controlid = receipt.controlid; 
+		v.reason = receipt.reason;
+		v.txndate = dateService.serverDate;
+		
+		em.create("cashreceipt:cancelseries", v );
+	
+		return receipt;
+	}	
+		
+		
+}

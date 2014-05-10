@@ -20,7 +20,7 @@ public class LGUOrgReportParameterInterceptor
 	def munSvc
 
 	
-	@After(pattern="ReportParameterService.getStandardParameter", eval="#{env.ORGCLASS =='CITY'}")
+	@After(pattern="ReportParameterService.getStandardParameter", eval="#{env?.ORGCLASS.toString().toLowerCase() =='city'}")
 	public void addCityInfo(evt) 
 	{
 		def result = evt.result
@@ -44,7 +44,7 @@ public class LGUOrgReportParameterInterceptor
 
 	}
 
-	@After(pattern="ReportParameterService.getStandardParameter", eval="#{env.ORGCLASS =='MUNICIPALITY'}")
+	@After(pattern="ReportParameterService.getStandardParameter", eval="#{env?.ORGCLASS.toString().toLowerCase() =='municipality'}")
 	public void addMunicipalityInfo(evt) 
 	{
 		def result = evt.result
@@ -79,7 +79,7 @@ public class LGUOrgReportParameterInterceptor
 
 	}
 
-	@After(pattern="ReportParameterService.getStandardParameter", eval="#{env.ORGCLASS =='PROVINCE'}")
+	@After(pattern="ReportParameterService.getStandardParameter", eval="#{env?.ORGCLASS.toString().toLowerCase() =='province'}")
 	public void addProvinceInfo(evt) 
 	{
 		def result = evt.result

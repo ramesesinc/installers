@@ -1,0 +1,79 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.common.*
+
+
+/****************************************************
+* this is a temporary solution to allow a collector
+* to start transaction
+*****************************************************/
+class CashTicketCollectorMigrationService  { 
+
+	@Service("CashTicketInventoryService")
+	def cashTicketSvc;
+
+	@Service("SequenceService") 
+	def seqSvc;
+
+	@ActiveDB("cashticket_control")
+	def cashTicketControl;
+
+	/**********************************************************
+	* pass the ff. parameters:
+	*    collector [objid, name]
+	*    afid = cashticket afid 
+	*    qty = qty issued
+	*    reason
+	* 	 refno = transaction ref no. just create one
+	*    refid = objid of transaction
+	*    reftype = type of transaction
+	*    refdate = date of transaction
+	*    remarks
+	**********************************************************/
+	@ProxyMethod
+	public void post( def m ) {
+		def sb = new StringBuffer();
+		if(!m.collector?.objid) sb.append( "collector.objid" );
+		if(!m.collector?.name) sb.append( "collector.name" );
+		if(!m.afid) sb.append( "afid" );
+		if(!m.qty) sb.append( "qty" );
+		if(!m.reason) sb.append( "reason" );
+		if(! m.refno) m.refno = 'SYSTEM' + seqSvc.getNextFormattedSeries("CASHTICKETFORWARD")
+		if(!m.refid) sb.append( "refid" );
+		if(!m.reftype) sb.append( "reftype" );
+		if(!m.refdate) sb.append( "refdate" );
+		if(!m.remarks) sb.append( "remarks" );
+
+		def head = [:];
+		head.refid = m.refid;
+		head.reftype = m.reftype;	
+		head.refno = m.refno;
+		head.refdate = m.refdate;
+	    head.afid = m.afid;
+		head.qty = m.qty;
+		head.remarks = m.remarks;
+		head.respcenter = m.collector;
+		if(!head.respcenter.type) head.respcenter.type = 'COLLECTOR';
+		head.txntype = "COLLECTOR BEG.BAL.";
+
+		def r = cashTicketSvc.postReceipt(head);
+		
+		//find the associated cash ticket control for issuee
+		def c = cashTicketControl.findByCollectorAF( [respcenterid: head.respcenter.objid, afid: head.afid] );
+		if(!c) {
+			c = [objid:"CTCTRL"+new UID()];
+			c.controlid = r.objid;
+			c.assignee = [:];
+			c.qtyin = head.qty;
+			c.qtyissued = 0;
+			c.qtybalance = head.qty;
+			cashTicketControl.create( c );
+		}
+		else {
+			c.qtyin+= head.qty;
+			c.qtybalance += head.qty;
+			cashTicketControl.update( c );
+		}
+	}
+}

@@ -1,0 +1,40 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class AFIssuanceListService {
+	
+	@PersistenceContext("main")
+	def em;
+
+	String pagingKeys = "afc.controlid"
+
+	@ProxyMethod
+	public def getColumns(def params ) {
+		return [
+				[name:'respcentername', caption:'Collector'],
+                [name:'afid', caption:'AF No.', maxWidth:80],
+                [name:'aftype', caption:'Type', maxWidth:80],
+                [name:'stubno', caption:'Stub No.', maxWidth:120],
+                [caption:'Start Series', type:'label', expression:"#{item.startseries.toString().padLeft(item.serieslength,'0')}"],
+                [caption:'End Series', type:'label', expression:"#{item.endseries.toString().padLeft(item.serieslength,'0')}"],
+                [caption:'Current Series', type:'label', expression:"#{item.currentseries.toString().padLeft(item.serieslength,'0')}"],
+                [name:'qtyreceived', caption:'Qty. Received', type:'integer', maxWidth:110],
+                [name:'balance', caption:'Balance', type:'integer', maxWidth:80],
+                [name:'txnmode', caption:'Mode', maxWidth:100 ],
+                [name:'assigneename', caption:'Assign To'],
+		]
+	}
+
+	@ProxyMethod 
+	public def getList( def params )  {
+		def qry  = em.sqlContext.createNamedQuery('afissuance:getList')
+				.setParameters(params)
+		// qry.setPagingKeys( pagingKeys );
+		if( params._start) qry.setFirstResult( params._start )		
+		if( params._limit) qry.setMaxResults( params._limit )		
+
+		return qry.resultList				
+	}
+}

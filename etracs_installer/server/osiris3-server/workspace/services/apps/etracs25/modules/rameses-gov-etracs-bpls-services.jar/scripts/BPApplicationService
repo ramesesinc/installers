@@ -1,0 +1,376 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BPApplicationService extends ActiveCrudService {
+
+	@ActiveDB("bpapplication")
+	def em;
+
+	@Service("BusinessInfoService")
+	def bizInfoSvc;
+
+	@Service("DateService")
+	def dateSvc;
+
+	@Service("BPLedgerService")
+	def ledgerSvc;
+
+	@ActiveDB("business")
+	def bizDB;
+
+	@Env
+	def env;
+
+	@Service("LOVService")
+	def LOV;
+
+
+	/**********************************************************
+	* called when creating new,renew,amend,retire applications
+	***********************************************************/ 
+	@ProxyMethod
+	public def initNew(o) {
+		if(!o.apptype)
+			throw new Exception("apptype must be provided");
+		def currentYear = dateSvc.serverYear;	
+		def entity = [:];
+		entity.businessid = o.businessid;
+		def activeYear = currentYear;
+		if(entity.businessid!=null) {
+        	//retrieve the business info
+        	def p = [objid: entity.businessid];
+        	def b = bizInfoSvc.open(p);
+        	if( b.state=='PROCESSING' ) 
+        		throw new Exception("This business is currently being processed");
+
+        	entity.putAll( b );
+			entity.appinfos = bizInfoSvc.getAppInfos(p);
+        	entity.lobs = bizInfoSvc.getLobs(p).findAll{ it.assessmenttype != 'RETIRE' };
+        	entity.assessmentinfos = [];
+        	activeYear = b.activeyear;	
+        	if(entity.requirements==null) entity.requirements = [];
+        	if(entity.totals==null) {
+        		entity.totals = [tax:0,othercharge:0,regfee:0,total:0];
+        	}	
+        }
+        else {
+	        entity.appinfos = [];
+	        entity.lobs = [];
+	        entity.assessmentinfos = [];
+	        entity.requirements = [];
+        	if(entity.totals==null) {
+        		entity.totals = [tax:0,othercharge:0,regfee:0,total:0];
+        	}	
+        }
+        entity.appyear = currentYear;
+		entity.txnmode = 'ONLINE';
+		entity.objid = "BP"+ new UID();
+        entity.apptype = o.apptype;
+        entity.state = 'PROCESSING';
+        switch(  o.apptype ) {
+    		case "NEW":
+    			break;	
+    		case "RENEW":
+    			if(activeYear>=currentYear)
+    				throw new Exception("Business is already renewed for " + currentYear);
+
+    			//do not include lines of business that are retired	
+    			entity.lobs.each {
+    				it.assessmenttype = 'RENEW';
+    			}	
+    			break;
+    		case "RETIRE":
+    			entity.lobs.each {
+    				it.assessmenttype = 'RETIRE';
+    			}
+    			break;
+    		default:
+    			if(currentYear!=activeYear)
+    				throw new Exception("Business must first be renewed for " + currentYear);
+    			entity.lobs.each {
+    				it.assessmenttype = 'ACTIVE';
+    			}	
+    			break;
+    	}        
+        return entity;
+	}
+
+	/**************************************************
+	* verify first if we can perform the application
+	* This is applicable for retire and amend
+	**************************************************/ 
+	@ProxyMethod
+	public def verifyLedger(def app) {
+		if( app.apptype == 'RETIRE') {
+			def bal = ledgerSvc.getUnpaidBalance( [businessid:app.businessid]);		
+			if( bal > 0 )
+				throw new Exception("Retire not allowed becuase there is still unpaid balance in ledger");
+		}
+		else if( app.apptype == 'AMENDLOB' ) {
+			app.lobs.each {
+				if( it.assessmenttype == 'RETIRE') {
+					def bal = ledgerSvc.getUnpaidBalance( [businessid:app.businessid, lobid: it.lobid] );		
+					if( bal > 0 )
+						throw new Exception("Retire for line " + it.name + " not allowed becuase there is still unpaid dues");
+				}
+				else if( it.assessmenttype == 'REMOVE') {
+					throw new Exception("Retire or remove line not yet supported.")
+				}
+				else if( it.assessmenttype == 'RECLASSIFY') {
+					throw new Exception("Reclassify line not yet supported.")
+				}
+			}
+		}
+	}
+ 
+	/**************************************************
+	* called by new application or by data capture.
+	* App No - naming = Use BIN + appcount. 
+	**************************************************/ 
+	public void beforeCreate(o) {
+		if(!o.txnmode)
+			throw new Exception("Please specify txnmode");
+		def yr = dateSvc.serverYear;	
+		if(!o.dtfiled) o.dtfiled = dateSvc.serverDate;	//useful if captured new
+		o.txndate = dateSvc.serverDate;		
+		o.appyear = yr;
+		o.yearstarted = yr;
+		//check first if there is a businessid else create one if not.
+		def bizInfo = null;
+		if(!o.businessid) {
+			def b = [:];
+			b.putAll(o);
+			b.objid = null;
+			b.activeyear = yr;
+			bizInfo = bizInfoSvc.create(b);
+		}
+		else {
+			bizInfo = bizInfoSvc.open([objid: o.businessid]);
+		}
+
+		if(!bizInfo.bin)
+			throw new Exception("BIN for Application is null. Pls. check data again");	
+
+		o.businessid = bizInfo.objid;
+		o.state = 'PROCESSING';
+		o.bin = bizInfo.bin;
+		o.appcount = bizInfo.appcount;	//we store this so it can be retrieved in afterCreate
+		o.appno = bizInfo.bin + "-" + bizInfo.appcount;
+		o.taxfees = [];
+		o.createdby = [objid:env.USERID,name:env.USER];
+	}
+
+	public void afterCreate(o) {
+		def b = [objid: o.businessid ];
+		b.currentapplicationid = o.objid;
+		b.appcount = o.appcount + 1;
+		b.state = 'PROCESSING';
+		if( o.apptype != 'AMENDLOB' ) {
+			b.apptype = o.apptype;
+		}
+		bizInfoSvc.update(b);
+	}
+
+	@ProxyMethod
+	public def getTaskList(o) {
+		def list = em.getTaskList(o);
+		list.each {
+			it.state = 'for ' + it.state;
+		}
+		return list;
+	}
+
+
+	@ProxyMethod
+	public void rebuildPost( def o ) {
+		throw new Exception("Rebuild post not supported");
+	}
+
+	@ProxyMethod
+	public def findByBIN(o) {
+		def id = null;
+		if( o.bin.indexOf("_") <= 0 ) {
+			id = em.findByBIN( [bin: o.bin] )?.objid;
+		}
+		else {
+			id = em.findByApp( [appno: o.bin ])?.objid;
+		}
+		if(!id)
+			throw new Exception("Application not found");
+		def app = em.read( [objid: id]);	
+		afterOpen(app);
+		return app;
+	}
+
+	public void afterOpen(o) {
+		o.bin = em.findBIN( [businessid: o.businessid] ).bin;
+		o.barcode = '51005:'+o.appno;
+
+		def taskid = o.task?.objid;
+		if(taskid) {
+			def tsk = em.read( [objid:taskid], "task" );
+			o.task = tsk;
+			def subtasks = em.getOpenSubTasks( [taskid: taskid] );
+			if(subtasks) {
+				subtasks = subtasks.findAll{ it.assignee?.objid == env.USERID };
+			}
+			o.subtasks = subtasks;
+		}	
+		if(o.assessedby?.objid) {
+    		def u = em.findAssessedBy( o );
+    		if(u) o.assessedby.putAll( u );
+     	}	
+     	if(o.orgtype) o.orgtypename = LOV.ORG_TYPES[o.orgtype];
+
+		def permit = em.findApplicationPermit([objid: o.objid]);
+		if(permit) {
+			o.permit = permit;
+		}
+	}
+
+	/*********************************************************************
+	* workflow actions
+	*********************************************************************/
+	@ProxyMethod
+	public def assignAssessorToSelf( o ) {
+		def app = o;
+		app.userid = env.USERID;
+		app.username = env.USER;
+		def result = [:];
+		
+		def s = em.findCurrentStatus([objid:app.objid]);
+		if(s.state=='CANCELLED') throw new Exception("Application has been cancelled");
+
+		def m = em.findAssessedBy( [objid:app.objid] );
+		if(m.objid) {
+			throw new Exception("This document is already assigned to " + m.lastname+ ", " + m.firstname);
+		}
+		em.updateAssessedBy(app);
+		o.assignee = [objid:env.USERID, name:env.USER];
+		
+		//this is for use by client
+		result.state = 'assessment';
+		result.assessedby = o.assignee;
+		return result;
+	}
+
+	@ProxyMethod
+	public def getApproverList() {
+		return em.getApproverList();
+	}
+
+	@ProxyMethod
+	public def submitForApproval(o) {
+		if(!o.assignee) throw new Exception("Please specify an approver");
+		def app = [objid: o.objid];
+		app.userid = o.assignee.objid;
+		app.username = o.assignee.name;
+		em.updateApprovedBy( app );
+		return [state:'approval'];
+	}
+
+	@ProxyMethod
+	public def returnForAssessment(o) {
+		if(!o.assignee) throw new Exception("Please specify an assignee");
+		def app = [objid: o.objid];
+		return [state:'assessment'];
+	}
+
+	@ProxyMethod 
+	public void postToLedger(app) {
+		def ledger = [:];
+		ledger.items = app.taxfees;
+		ledger.items.each { r->
+			r.applicationid = app.objid;
+			r.businessid = app.businessid;
+			r.iyear = app.appyear;
+			r.amtpaid = 0;
+			r.discount = 0;
+			if(r.lob?.objid) {
+				r.lob.assessmenttype = app.lobs.find{ l-> l.lobid == r.lob.objid }?.assessmenttype;
+				if(!r.lob.assessmenttype) throw new Exception("LOB assessment type should not be null");
+			}
+		}
+		ledgerSvc.postReceivables(ledger);
+	}
+
+	@ProxyMethod
+	public void revertPostApplication(app) {
+		ledgerSvc.revertReceivables( [applicationid: app.objid ] );
+	}
+
+	@ProxyMethod
+	public def postApprove(app) {
+		if(!app.taxfees)
+			throw new Exception("Please indicate at least one taxfee item");
+		postToLedger(app);
+		app.appid = app.objid;
+		app.taskid = app.task.objid;
+		return [state:'payment'];
+	}
+
+	@ProxyMethod
+	public def revertApproval(app) {
+		if(!app.approvedby?.objid)
+			throw new Exception("approver is required");
+		app.assignee = app.approvedby;
+		revertPostApplication(app);
+		app.appid = app.objid;
+		app.taskid = app.task.objid;
+		return [state:'approval'];
+	}
+
+
+	/***
+	* release will explode the application infos and activate the business.
+	* at the same time it will also close the remaining tasks.
+	***/
+	@ProxyMethod
+	public void release(o) {
+		def app = o;
+		o.taskid = app.task?.objid;
+		o.appid = app.objid;
+		app.state = 'COMPLETED';
+		em.changeState( [state:app.state, objid: o.appid] );
+
+		def m = [:];
+		m.objid = app.businessid;
+		m.activeyear = app.appyear;
+		m.apptype = app.apptype;
+		m.lobs = app.lobs;
+		m.infos = app.appinfos;
+		m.assessmentinfos = app.assessmentinfos;
+		m.businessname = app.businessname;
+		m.tradename = app.tradename;
+		m.owner = app.owner;
+		m.businessaddress = app.businessaddress;
+		m.orgtype = app.orgtype;
+		m.currentapplicationid = null;
+		m.lobs = app.lobs;
+		m.appinfos = app.appinfos;
+		m.assessmentinfos = app.assessmentinfos;
+		bizInfoSvc.updateInfos( m );
+	}
+
+	@ProxyMethod
+	public void cancelApplication(def o) {
+		def app = em.read( o );	
+		def p = [objid: app.objid, state: 'CANCELLED'];
+		em.changeState( p );
+		def b = [objid: app.businessid ];
+		if(!app.apptype.matches('NEW')) 
+			b.state = 'ACTIVE';
+		else 
+			b.state = 'CANCELLED';
+		b.currentapplicationid = null;
+		bizInfoSvc.update(b);
+	}
+
+	@ProxyMethod
+	public def updateBusinessInfo( def o ) {
+		em.update( o );
+	}
+
+}

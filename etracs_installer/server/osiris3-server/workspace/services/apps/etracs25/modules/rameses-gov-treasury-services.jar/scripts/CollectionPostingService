@@ -1,0 +1,57 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+import com.rameses.util.*
+
+
+class CollectionPostingService  
+{ 
+	@ActiveDB('collectionposting')
+	def adb 
+
+	@Env
+	def env 
+
+	String pagingKeys = 'objid'
+
+	@ProxyMethod
+	public def getColumns( params ) {
+		return [
+			[name:'txndate', caption:'Txn Date'],
+			[name:'type', caption:'Type'],
+			[name:'postedby.name', caption:'Posted By'],
+			[name:'postedby.title', caption:'Title'],
+			[name:'dtposted', caption:'Date Posted'],
+			[name:'amount', caption:'Amount', type:'decimal'],
+		]	
+	}
+
+	@ProxyMethod
+	public def getList( params ) {
+		params.searchtext = (params.searchtext ? params.searchtext : '') + '%'
+		return adb.getList(params)
+	}
+
+
+	@ProxyMethod
+	public def init( entity  ) {
+		entity.objid   		= 'PC' + new java.rmi.server.UID()
+		entity.state 		= 'DRAFT'
+		entity.postedby 	= [objid:env.USERID, name : env.NAME, title:env.JOBTITLE]
+		return entity
+	}
+
+
+	@ProxyMethod
+	public def open( entity ) {
+		return entity	
+	}
+
+
+	@ProxyMethod
+	public def post( entity ) {
+		return entity	
+	}
+
+
+}

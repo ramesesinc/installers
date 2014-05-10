@@ -1,0 +1,77 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+
+
+class RemoteServerDataService
+{
+	@PersistenceContext('main')
+	def em
+ 
+	@ActiveDB('remoteserver_data')	
+	def adb
+	
+	String pagingKeys = 'objid'
+
+	@ProxyMethod
+	public def create( entity ) {
+		entity.data = em.serializer.write(entity.data)
+		adb.create(entity)	
+	}
+
+	@ProxyMethod
+	public def update( entity ) {
+		entity.data = em.serializer.write(entity.data)
+		adb.update(entity)	
+	}
+
+	@ProxyMethod
+	public def open( entity ) {
+		entity = adb.read(entity)	
+		entity.state = 'POSTED'
+		entity.data = em.serializer.read(entity.data)
+		return entity 
+	}
+
+	@ProxyMethod
+	public def removeEntity( entity ) {
+		adb.removeEntity(entity)	
+	}
+
+
+	@ProxyMethod
+	public def getCollectionTypes(  ) {
+		return adb.getCollectionTypes().each{ it.export = false}
+	}
+
+
+
+	@ProxyMethod
+	public def getFunds(  ) {
+		return adb.getFunds()	
+	}
+	@ProxyMethod
+	public def getUserMemberships(userid) {
+		return adb.getUserMemberships([userid:userid])
+	}
+
+
+	@ProxyMethod
+	public def getUserCashBooks( userid ) {
+		return adb.getUserCashBooks([userid:userid])	
+	}
+
+
+	@ProxyMethod
+	public def getList( params ) {
+		return adb.getList(params)
+	}
+
+
+	@ProxyMethod 
+	public def getColumns( params ) {
+		return [
+			[name:'objid', caption:'Remote Server'],  
+		];
+	}
+}

@@ -1,0 +1,14 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BusinessCollectionTypeInterceptor {
+
+	
+	@After(pattern="CollectionTypeService.open", eval="result.handler == 'bpls'")
+	public def getAccounts(def evt) { 
+	}
+
+
+}

@@ -1,0 +1,172 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+
+
+/**********************************************************
+* This routine is hooked in the CashReceiptService and 
+* CashReceiptVoidService services. It will update each
+* receivable based on amount paid. It sufficient amount 
+* is paid, the application is changed from 'payment' to 
+* 'release' state. How to determine how much amount is
+* sufficient ? One method is by looking at the deadline 
+* for each billing item compared with the receipt date. 
+* We get the first expiry date, which is 1st qtr date for
+* renew. If all items are paid prior to this date, then
+* application will be released. Eventually we would like 
+* this to be rule based in the future.     
+**********************************************************/
+public class BusinessCashReceiptInterceptor {
+
+	@ActiveDB("bpledger")
+	def bpledger;
+	
+	@ActiveDB("bpapplication")
+	def application;
+
+	@Service("NumberService")
+	def numberSvc;
+
+	@Service("BusinessTaskService")
+	def taskSvc;
+
+	@Service("BusinessTaxCreditService")
+	def taxCreditSvc;
+
+	@Before(pattern="CashReceiptService.post", eval="#{args[0].collectiontype.handler == 'bpls'}")
+	public void preBusinessPayment(def evt) {
+		def r = evt.args[0];
+		if(r.totalcredit>0) {
+			def creditAcct = bpledger.findTaxCreditAccount();
+			if(!creditAcct) {
+				throw new Exception("Please define first a tax credit account in business account");
+			}
+			r.items << [ item: creditAcct, amount: r.totalcredit ];
+			r.amount = r.amount + r.totalcredit;		
+		}
+	}
+
+	@After(pattern="CashReceiptService.post", eval="#{result.collectiontype.handler == 'bpls'}")
+	public void postBusinessPayment(def evt) {
+
+		def result = evt.result;
+		def pmt = [:];
+		pmt.objid = "BPPMT"+new UID();
+		pmt.businessid = result.businessid;
+		pmt.applicationid = result.applicationid;
+		pmt.qtr = result.qtr;
+		pmt.payoption = result.payoption;
+		pmt.refno = result.receiptno;
+		pmt.refdate = result.receiptdate;
+		pmt.refid = result.objid;
+		pmt.reftype = 'cashreceipt';
+
+		pmt.amount = result.amount;
+		pmt.remarks = null;
+		pmt.voided = 0;
+		bpledger.create( pmt, "payment" );
+		
+		result.billitems.each {
+			def m = [:]
+			m.objid = "BPRCVPMT"+ new UID();
+			m.receivableid = it.receivableid;
+			m.businessid = result.businessid;
+			m.paymentid = pmt.objid;
+			m.iyear = it.year;
+			m.iqtr = it.qtr;
+			m.refid = result.objid;
+			m.amtpaid = it.amtdue;
+			m.surchargepaid = it.surcharge;
+			m.interestpaid = it.interest;
+			m.discount = it.discount;
+			m.account = it.account;
+			m.lob = it.lob;
+			bpledger.create( m, "paymentitem");
+		}
+		
+		//summarize by receivableid
+		def grps = result.billitems.groupBy{ it.receivableid };
+		def ids = [];
+		grps.each { k,v->
+			def discount = numberSvc.round( v.sum{ it.discount } );
+			def amtpaid = numberSvc.round( v.sum{ it.amtdue} );
+			if(!discount) discount = 0;
+			if(!amtpaid) amtpaid = 0;
+			bpledger.updateReceivablePayment( [receivableid: k, amtpaid:amtpaid, discount: discount] );
+			ids << k;
+		}
+
+		if(result.totalcredit >0) {
+			def entry = [businessid: pmt.businessid];
+			entry.refno = pmt.refno;
+			entry.refdate = pmt.refdate;
+			entry.refid = pmt.refid;
+			entry.refdate = pmt.refdate;
+			entry.dr = result.totalcredit;
+			entry.reftype = "cashreceipt";
+			entry.particulars = "overpayment";
+			taxCreditSvc.post( entry );
+		}
+
+		//check the receivable balance of the application. before today due date.
+		if(pmt.qtr > 0 ) {
+			//find recent task
+			def tskid = application.findCurrentTaskid( [objid: pmt.applicationid] )?.taskid;
+			if(tskid) {
+				taskSvc.endTask([taskid: tskid]);
+				def tsk = [:];
+				tsk.appid = pmt.applicationid;
+				tsk.state = 'release';
+				tsk.channel = 'BPLS';
+				taskSvc.startTask( tsk );
+			}
+		}
+	}
+
+	//hook for void cash receipts
+	@After(pattern="CashReceiptVoidService.post", eval="#{result.receipt.collectiontype.handler == 'bpls'}")
+	public void voidTxn(def evt) {
+		def rct = evt.result.receipt;
+		def bppayment = bpledger.findReceivablePaymentForVoid(  [receiptid: rct.objid ] );
+		def list = bpledger.getPaymentItemsForVoid(  [paymentid: bppayment.objid ] );
+		def grps = list.groupBy{ it.receivableid }
+		def ids = [];
+		grps.each {k,v->
+			def z = [ receivableid: k, 
+					 amtpaid: numberSvc.round( v.sum{ it.amtpaid } ),
+					 discount: numberSvc.round( v.sum{ it.discount } ),
+				   ];
+			bpledger.reverseReceivablePayment(z);
+			ids << k;
+		}
+		bpledger.updateReceivablePaymentForVoiding(  [receiptid: rct.objid ] );
+
+		//find associated application for receipt
+		if(!bppayment.applicationid) throw new Exception("No associated application for this payment");
+		def tskid = application.findCurrentTaskid( [objid: bppayment.applicationid] )?.taskid;
+		if(tskid) {
+			taskSvc.endTask([taskid: tskid]);
+			def tsk = [:];
+			tsk.appid = bppayment.applicationid;
+			tsk.state = 'payment';
+			tsk.channel = 'BPLS';
+			taskSvc.startTask( tsk );
+		}
+
+		if(rct.totalcredit > 0 ) {
+			def voidrct = evt.result;
+			println voidrct.txndate;
+			def entry = [businessid:bppayment.businessid];
+			entry.dr = 0;
+			entry.cr = rct.totalcredit;
+			entry.refno = rct.receiptno;
+			entry.refdate = voidrct.txndate;
+			entry.refid = voidrct.objid;
+			entry.particulars = "void:"+voidrct.reason;
+			entry.reftype = "cashreceipt:void";
+			taxCreditSvc.post( entry );
+		}
+	}
+
+
+}

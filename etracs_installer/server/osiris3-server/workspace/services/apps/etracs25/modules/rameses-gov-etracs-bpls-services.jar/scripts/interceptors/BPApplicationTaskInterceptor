@@ -1,0 +1,65 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BPApplicationTaskInterceptor {
+
+	@ActiveDB("bpapplication")
+	def em;
+
+	@Service("BusinessTaskService")
+	def taskSvc;
+
+	@Env
+	def env;
+
+	@Service("DateService")
+	def dateSvc;
+
+	/***************************************************************************
+	* workflow actions
+	****************************************************************************/
+	@After(pattern="BPApplicationService.create")
+	public void logCreate(def evt) { 
+		def app = evt.args[0];
+		def tsk = [:];
+		tsk.appid = app.objid;
+		tsk.state = 'assign-assessor';
+		tsk.channel = "BPLS";
+		tsk.action = "pending";
+		taskSvc.startTask( tsk );
+	}
+
+	@After(pattern="BPApplicationService.(assign.*|return.*|submitFor.*|postApprove|revert.*)")
+	public void fireWorkflow(def evt) { 
+		def param = evt.args[0];
+		def result = evt.result;
+		if(!param.objid) throw new Exception("Please pass an appid in param args");
+		if(!param.taskid) throw new Exception("Please pass taskid in param args");
+		
+		if(!result.state) throw new Exception("Please pass a result state");
+		def state = result.state;
+		taskSvc.endTask( [taskid:param.taskid] );
+
+		def tsk = [:];
+		tsk.appid = param.objid;
+		tsk.state = result.state;
+		tsk.assignee = param.assignee;
+		tsk.message = param.message;
+		tsk.channel = 'BPLS';
+		result.task = taskSvc.startTask( tsk );
+	}
+
+	@After(pattern="BPApplicationService.release")
+	public void endWorkflow(def evt) {
+		def param = evt.args[0];
+		if(!param.taskid) throw new Exception("Please pass taskid in param args");
+		if(!param.appid) throw new Exception("Please pass appid in param args");
+		def t = [:];
+		t.taskid = param.taskid;
+		t.assignee = [objid:env.USERID, name:env.USER];
+		def et = taskSvc.endTask( t );
+		em.closeCurrentTask( [objid:param.appid, dtreleased: et.enddate ] );
+	}
+}

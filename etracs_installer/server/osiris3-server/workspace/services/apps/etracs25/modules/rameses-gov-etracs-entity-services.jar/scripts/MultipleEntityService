@@ -1,0 +1,91 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import java.rmi.server.UID;
+import com.rameses.util.*;
+import com.rameses.io.*;
+import com.rameses.services.extended.*;
+
+class MultipleEntityService extends ActiveCrudListService {
+
+
+	@ActiveDB("entitymultiple")
+	def	em; 
+
+	@ActiveDB("entity")
+	def	entity; 
+
+	@Env
+	def env;
+
+	@Service('DateService')
+	def dtSvc;
+
+	@Service("LOVService")
+	def LOV;
+
+	@Service('SequenceService')
+	def seqSvc;
+
+	def INDEX_CHAR_COUNT = 300;
+
+	String pagingKeys = 'e.objid'
+
+	@ProxyMethod
+	public def getColumns( params ) {
+		return [
+			[name:'entityno', caption:'Entity No', maxWidth:150, resizable:false], 
+			[name:'fullname', caption:'Name'], 
+		]; 
+	}
+
+	void updateName( o ) {
+		def len = o.name.length()
+		if (len > INDEX_CHAR_COUNT) len = INDEX_CHAR_COUNT
+		o.entityname = o.name.substring(0, len);		
+	}
+
+	public void beforeCreate(o) {
+		o.entityno = "M"+seqSvc.getNextFormattedSeries( "MULTIPLE" ); 
+		updateName(o);
+		if(!o.address.objid) o.address.objid = 'ENTADDR'+new UID();
+		o.address.parentid = o.objid;			
+		entity.create( o );
+	}
+
+	public void afterCreate(o) {
+		o.members?.each { 
+			it.entityid = o.objid;
+			em.create(it, 'member'); 
+		} 		
+	}
+
+	public void beforeUpdate(o) {
+		updateName(o);
+		if(!o.address.objid) o.address.objid = 'ENTADDR'+new UID();
+		o.address.parentid = o.objid;			
+		entity.update( o );
+	}
+
+	public void afterUpdate(o) {
+		em.removeMembers([objid: o.objid]);
+		o.members?.each { 
+			it.entityid = o.objid;
+			em.create(it, 'member'); 
+		} 
+	}
+		
+	public void beforeRemoveEntity(o) {
+		em.removeMembers([objid: o.objid]);
+	}
+
+	public void afterRemoveEntity(o) {
+		entity.delete( o );
+	}
+
+	public void afterOpen( o ) {
+		def z = entity.read( o );
+		o.putAll( z );
+		o.members = em.getMembers([objid: o.objid]); 		
+	}
+
+}

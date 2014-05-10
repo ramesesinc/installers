@@ -1,0 +1,77 @@
+<schema>
+	
+	<element tablename="bpapplication">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="appno" required="true"/>
+		<field name="state" />
+		<field name="apptype" required="true"/>
+		<field name="task_objid" />
+		<field name="amendtype" />
+		<field name="appyear" required="true"/>
+		<field name="yearstarted" required="true"/>
+		<field name="dtfiled" required="true"/>
+		<field name="dtreleased" />
+		<field name="txnmode" required="true"/>
+		<field name="txndate" required="true"/>
+		<field name="owner_name" required="true"/>
+		<field name="owner_objid" required="true"/>
+		<field name="owner_address_text" required="true"/>
+		<field name="tradename" required="true"/>
+		<field name="businessname" required="true"/>
+		<field name="businessaddress_text" required="true"/>
+		<field name="businessaddress_objid" required="true"/>
+		<field name="orgtype" required="true"/>
+		<field name="createdby_objid" required="true"/>
+		<field name="createdby_name" required="true"/>
+		<field name="assessedby_objid" />
+		<field name="assessedby_name" />
+		<field name="approvedby_objid" />
+		<field name="approvedby_name" />
+		<complex name="lobs" type="list" serializer="default" required="true"/>
+		<complex name="appinfos" type="list" serializer="default" required="true"/>
+		<complex name="requirements" type="list" serializer="default" required="true"/>
+		<complex name="assessmentinfos" type="list" serializer="default" required="true"/>
+		<complex name="taxfees" type="list" serializer="default" required="true"/>
+		<field name="totals_tax"  required="true"/>
+		<field name="totals_regfee"  required="true"/>
+		<field name="totals_othercharge"  required="true"/>
+		<field name="totals_total"  required="true"/>
+		<field name="remarks"/>
+	</element>	
+
+	<element name="task" tablename="bpapplication_task">
+		<field name="objid" primary="true"/>
+		<field name="applicationid" required="true"/>
+		<field name="parentid" />
+		<field name="channel" required="true" />
+		<field name="state" required="true"/>
+		<field name="assignee_objid" />
+		<field name="assignee_name"/>
+		<field name="message" />
+		<field name="startdate" required="true"/>
+		<field name="enddate"/>
+		<field name="sender_objid" />
+		<field name="sender_name"/>
+		<field name="action"/>
+	</element>	
+
+	<element name="requirement" tablename="bpapplication_requirement">
+		<field name="objid" primary="true"/>
+		<field name="applicationid" required="true"/>
+		<field name="reftype" />
+		<field name="refid" required="true"/>
+		<field name="refno" />
+		<field name="title" required="true"/>
+		<field name="dtissued" />
+		<field name="issuedby" />
+		<field name="placeissued" />
+		<field name="remarks"/>
+		<field name="status" required="true"/>
+		<field name="step" required="true"/>
+		<field name="completedby_objid"/>
+		<field name="completedby_name"/>
+		<field name="dtcompleted"/>
+	</element>
+
+</schema>

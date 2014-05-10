@@ -1,0 +1,118 @@
+<schema>
+	
+	<element tablename="business">
+		<field name="objid" primary="true"/>
+		<field name="state" required="true"/>
+		<field name="apptype" />
+		<field name="owner_name" required="true"/>
+		<field name="owner_objid" required="true"/>
+		<field name="owner_address_text" required="true"/>
+		<field name="tradename" required="true"/>
+		<field name="businessaddress_text" required="true"/>
+		<field name="businessaddress_objid" required="true"/>
+		<field name="orgtype" required="true"/>
+		<field name="businessname" required="true"/>
+		<field name="yearstarted" required="true"/>
+		<field name="activeyear" required="true"/>
+		<field name="pin" />
+		<field name="currentapplicationid" />
+		<field name="bin" required="true"/>
+		<field name="taxcredit" required="true"/>
+		<field name="currentpermitid" />
+		<field name="qtrpaid" />
+		<field name="appcount" required="true"/>
+	</element>	
+
+	<element name="address" tablename="business_address">
+		<field name="objid" primary="true"/>
+		<field name="type" required="true"/>
+		<field name="businessid" required="true"/>
+		<field name="addresstype"/>
+		<field name="address1"/>
+		<field name="address2" />
+		<field name="barangay_objid" />
+		<field name="barangay_name"/>
+		<field name="city" />
+		<field name="province"/>
+		<field name="municipality" />
+	</element>
+
+
+	<element name="changeinfo" tablename="business_changeinfo">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="dtfiled" required="true"/>
+		<field name="filedby_objid" required="true"/>
+		<field name="filedby_name" required="true"/>
+		<field name="owner_name" required="true"/>
+		<field name="owner_objid" required="true"/>
+		<field name="owner_address" required="true"/>
+		<field name="barangay_objid" />
+		<field name="barangay_name" />
+		<field name="tradename" required="true"/>
+		<field name="businessaddress" required="true"/>
+		<field name="orgtype" required="true"/>
+		<field name="businessname" required="true"/>
+		<field name="pin" />
+	</element>	
+
+	<element name="lob" tablename="business_lob">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="lobid" required="true"/>
+		<field name="name" required="true"/>
+		<field name="assessmenttype" required="true"/>
+	</element>
+
+	<element name="info" tablename="business_info">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="attribute_objid" required="true"/>
+		<field name="attribute_name" required="true"/>
+		<field name="decimalvalue" />
+		<field name="intvalue" />
+		<field name="stringvalue" />
+		<field name="boolvalue" />
+		<field name="phase" />
+		<field name="level" />
+	</element>	
+
+	<element name="assessment_info" tablename="business_assessment_info">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="attribute_objid" required="true"/>
+		<field name="attribute_name" required="true"/>
+		<field name="lob_objid" />
+		<field name="lob_name" />
+		<field name="decimalvalue" />
+		<field name="intvalue" />
+		<field name="stringvalue" />
+		<field name="boolvalue" />
+		<field name="phase" />
+		<field name="level" />
+	</element>	
+
+	<element name="case" tablename="business_case">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="state" required="true"/>
+		<field name="casetype" required="true"/>
+		<field name="description" required="true"/>
+	</element>	
+
+
+
+	<element name="redflag" tablename="business_redflag">
+		<field name="objid" primary="true"/>
+		<field name="businessid" required="true"/>
+		<field name="message" required="true"/>
+		<field name="severity"/>
+		<field name="dtposted"/>
+		<field name="postedby_objid"/>
+		<field name="postedby_name"/>
+		<field name="resolved"/>
+		<field name="remarks"/>
+	</element>	
+
+
+</schema>

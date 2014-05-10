@@ -1,0 +1,30 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+class UnremittedCollectionService {
+
+	@PersistenceContext("main")
+	def em;
+
+	@Env
+	def env;
+	
+	String schemaName = "unremittedcollection";
+	String pagingKeys = "c.objid"
+	
+	@ProxyMethod
+	public def getList(params) {
+		params.collectorid = env.USERID
+		params.searchtext = params.searchtext ? params.searchtext + "%" : "%"
+
+		def qry = em.sqlContext.createNamedQuery("unremittedcollection:getList")
+		qry.setPagingKeys("c.objid")
+
+		return qry.setParameters(params).resultList;
+
+	}
+
+}

@@ -1,0 +1,14 @@
+import com.rameses.annotations.*;
+import com.rameses.services.extended.*;
+
+class LobAttributeService extends ActiveCrudListService {
+
+	@ActiveDB("lobattribute")
+	def em;
+
+	void beforeCreate(o) {
+		o.objid = o.name;
+	}
+
+	
+}

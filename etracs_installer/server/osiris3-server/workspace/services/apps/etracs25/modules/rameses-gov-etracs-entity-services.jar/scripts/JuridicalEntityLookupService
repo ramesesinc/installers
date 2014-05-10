@@ -1,0 +1,33 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import java.rmi.server.UID;
+import com.rameses.util.*;
+import com.rameses.io.*;
+import com.rameses.services.extended.*;
+
+class JuridicalEntityLookupService extends ActiveListService {
+
+	@ActiveDB("entityjuridical")
+	def	em; 
+
+	String pagingKeys = 'e.objid';
+	String listMethod = 'getLookup';
+
+	@ProxyMethod
+	public def getColumns( params ) {
+		return [
+			[name:'name', caption:'Company Name'], 
+			[name:'address.text', caption:'Company Address'], 
+			[name:'dtregistered', caption:'Date Registered', width:100, resizable:false, alignment:'center'], 
+			[name:'orgtype', caption:'Org.Type'], 
+			[name:'nature', caption:'Business Nature']
+		]; 
+	}
+
+	public void beforeList(o) {
+		if(o.orgtype) {
+			o.filter = ''' AND ej.orgtype = $P{orgtype} ''';
+		}
+	}
+
+}

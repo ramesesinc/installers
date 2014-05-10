@@ -1,0 +1,112 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BPPaymentService  {
+
+	@ActiveDB("bpledger")
+	def em;
+
+	@ActiveDB("businesstaxcredit")
+	def taxcredit;
+
+	@Service("DateService")
+	def dateSvc;
+
+	@Service("BPLedgerService")
+	def bpLedgerSvc;
+
+	@Service("BusinessTaxCreditService")
+	def taxCreditService;
+
+	@Service("SequenceService")
+	def seqSvc;
+
+	@ProxyMethod
+	public def open(o) {
+		def v = em.read( o, "payment" );
+		v.items = em.getPaymentItems( o );
+		def total = 0;
+		v.items.each {
+			it.total = it.amtpaid+it.surchargepaid+it.interestpaid;
+			total += it.total;
+		}
+		v.total = total;
+		return v;
+	}
+
+	@ProxyMethod
+	public def initNew(o) {
+		def m = [:];
+		m.objid = "BPPAY"+new UID();
+		m.reftype = o.reftype;
+		m.refdate = dateSvc.serverDate;
+		m.businessid = o.businessid;
+		m.items = [];
+		def rvbls = bpLedgerSvc.getReceivables([objid:o.businessid]);
+		rvbls.each {
+			def itm = [:];
+			itm.objid = "BPPMTITEM"+new UID();
+			itm.receivableid = it.objid;
+			itm.businessid = o.businessid;
+			itm.paymentid = m.objid;
+			itm.balance = it.balance;
+			itm.amtpaid = 0;
+			itm.discount = 0;
+			itm.surchargepaid = 0;
+			itm.interestpaid = 0;
+			itm.total = 0;
+			itm.account = it.account;			
+			itm.lob = it.lob;			
+			m.items << itm;
+		}
+		m.total = 0;
+		if( o.reftype == 'TAXCREDIT') {
+			//if init is tax credit, we need to get the existing tax credit value
+			def tx = taxcredit.findByBusinessid([businessid: o.businessid]);
+			if(!tx) {
+				throw new Exception("Tax credit ledger does not exist");
+			}
+			if(tx.balance <=0) {
+				throw new Exception("No remaining balance found for tax credit")
+			}
+			m.taxcredit = tx.balance;
+		}
+		return m;
+	}
+
+	@ProxyMethod
+	public def create(o) {
+		if(o.total<=0)
+			throw new Exception("Total amount must be greater than 0");
+
+		if(o.reftype == 'TAXCREDIT') {
+			if( o.taxcredit < o.total )
+				throw new Exception("Tax credit is not sufficient");
+			o.refno = "TXC" + seqSvc.getNextFormattedSeries("TXC");		
+		} 
+
+		o.amount = o.total;	
+		o.voided = 0;
+		em.create( o, "payment");
+		o.items.findAll{it.total>0}.each {
+			em.create( it, "paymentitem");
+			//update the receivable
+			em.updateReceivablePayment([receivableid: it.receivableid, amtpaid:it.amtpaid,discount: it.discount]);			
+		}
+
+		if(o.reftype == 'TAXCREDIT') {
+			def entry = [businessid: o.businessid];
+			entry.refno = o.refno;
+			entry.refdate = o.refdate;
+			entry.refid = o.objid;
+			entry.refdate = o.refdate;
+			entry.cr = o.total;
+			entry.reftype = "taxcreditpayment";
+			entry.particulars = "application of credit";
+			taxCreditService.post( entry )
+		}
+		return  o;
+	}
+}

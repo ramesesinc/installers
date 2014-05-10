@@ -1,0 +1,104 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+
+class SpecialCollectionTypeInterceptor 
+{
+	@Service('SpecialCollectionTypeService')
+	def svc 
+
+	@Before(pattern="CollectionTypeService.removeEntity", eval="args[0].handler.matches('burial|lco|lct|marriage')")
+	public def deleteSpecialCollectionType(def evt) { 
+		svc.delete(evt.args[0].specialacctobj)
+	}
+	
+	@After(pattern="CollectionTypeService.open", eval="result.handler.matches('burial|lco|lct|marriage')")
+	public def openSpecialCollectionType(def evt) { 
+		def ct = evt.result; 
+		def setting = svc.open(ct.objid);
+		if (setting){
+			ct.specialacctobj = setting.objid;
+			ct.item = setting.item;
+			ct.amount = setting.amount;
+		}
+	}
+
+	@After(pattern="CollectionTypeService.create", eval="result.handler.matches('burial|lco|lct|marriage')")
+	public def createSpecialCollectionType(def evt) { 
+		def ct = evt.result;
+		ct.specialacctobj = 'CI' + new UID();
+		ct.collectiontypeid = ct.objid 
+		svc.create( ct );
+	}
+
+	@After(pattern="CollectionTypeService.update", eval="result.handler.matches('burial|lco|lct|marriage')")
+	public def updateSpecialCollectionType(def evt) { 
+		svc.update(evt.result);
+	}
+
+
+
+
+
+
+
+	
+	@After(pattern="CollectionTypeService.create", eval="result.handler.matches('slaughter')")
+	public def createSpecialCollectionTypeWithItems(def evt) { 
+		def ct = evt.result; 
+		ct.items?.each {
+			if (it.item) {
+				it.putAll( createSpecialAcct( ct.objid, it ) );
+			}
+		}
+	}
+	
+	
+	@After(pattern="CollectionTypeService.update", eval="result.handler.matches('slaughter')")
+	public def updateSpecialCollectionTypeWithItems(def evt) { 
+		def ct = evt.result; 
+		ct.items?.each { itm ->
+			if (itm.state == 'SAVED'){
+				svc.update( itm );
+			}
+			else {
+				if (itm.item )
+					itm.putAll( createSpecialAcct( ct.objid, itm ) );
+			}
+				
+		}
+		
+		ct.itemsToDelete?.each {
+			svc.delete( it.specialacctobj );
+		}
+	}
+	
+	@After(pattern="CollectionTypeService.open", eval="result.handler.matches('slaughter')")
+	public def openSpecialCollectionTypeWithItems(def evt) { 
+		def ct = evt.result; 
+		ct.items = svc.getList(ct.objid);
+	}
+	
+	@Before(pattern="CollectionTypeService.removeEntity", eval="args[0].handler.matches('slaughter')")
+	public def deleteSpecialCollectionTypeWithItems(def evt) {
+		def ct = evt.args[0]; 
+		ct.items?.each {
+			svc.delete( it.objid );
+		}
+	}
+
+
+	def createSpecialAcct( collectiontypeid, item ) {
+		def sa = [
+			objid 				: 'CI' + new UID(),
+			collectiontypeid  	: collectiontypeid,
+			item   				: item.item,
+			amount 				: item.amount,
+			state  				: 'SAVED',
+			revtype 			: item.revtype
+		];
+		
+		svc.create( sa );
+		return sa;
+	}
+}

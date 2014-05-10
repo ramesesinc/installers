@@ -1,0 +1,126 @@
+import com.rameses.annotations.*;
+import com.rameses.services.extended.*;
+import java.rmi.server.*;
+
+
+class BusinessPermitService  {
+
+	@ActiveDB("businesspermit")
+	def em;
+
+	@Service("Var")
+	def sysvar;
+
+	@Service("DateService")
+	def dateSvc;
+
+	@Service("SequenceService")
+	def seqSvc;
+
+	@Service("BusinessInfoService")
+	def bizInfo;
+
+	@Env
+	def env;
+
+	@ProxyMethod
+	public def create(o) {
+		if(!o.businessid)
+			throw new Exception("Please specify businessid");
+
+		def b = bizInfo.open( [objid: o.businessid] );
+		
+		def lgucode = sysvar.lgu_objid;
+
+		//check if there is already an issued permit for the year, update the version	
+		def yr = b.activeyear;
+
+		def z = em.findPermitByYear( [businessid: o.businessid, activeyear: yr ] );
+		
+		def permitno = null;
+		int ver = 0;
+
+		if( z ) {
+			ver = z.version + 1;
+			permitno = z.permitno;
+		}
+		else {
+			def prefix = lgucode+""+yr;
+			ver = 0;
+			permitno = prefix+"-"+seqSvc.getNextFormattedSeriesA(prefix,5);
+		}
+
+		//calculate expiry date
+		def expirydate = dateSvc.getMonthEndDate( java.sql.Date.valueOf(yr+"-12-01") );		
+		def p = [:];
+ 		p.objid = "PERM" + new UID();
+ 		p.state = 'ACTIVE';
+ 		p.dtissued = dateSvc.serverDate;
+ 		p.issuedby = [objid: env.USERID, name:env.USER];
+ 		p.expirydate = expirydate;
+ 		p.version = ver;
+ 		p.permitno = permitno;
+ 		p.permittype = o.permittype;
+ 		copy(p, b);
+ 		em.create( p );
+ 		return p;
+	}
+
+	private void copy( def p, def b ) {
+ 		p.businessid = b.objid;
+ 		p.activeyear = b.activeyear;
+ 		p.ownername = b.owner.name;
+ 		p.owneraddress = b.owner.address;
+ 		p.tradename = b.tradename;
+ 		p.businessaddress = b.businessaddress;
+ 		p.businessname = b.businessname;
+ 		p.orgtype = b.orgtype;
+ 		p.bin = b.bin;
+ 		p.pin = b.pin;
+ 		p.apptype = b.apptype;
+ 		p.lobs = bizInfo.getLobs( [objid:p.businessid] );
+ 		p.appinfos = bizInfo.getAppInfos( [objid:p.businessid] );
+ 		p.assessmentinfos = bizInfo.getAssessmentInfos( [objid:p.businessid] );
+ 		p.payments = em.getPayments( [businessid: p.businessid, activeyear: p.activeyear]);
+ 		p.payments.each {
+			if(it.payoption == 'FULLYEAR') {
+				it.particulars = 'full';
+			}
+			else if(it.payoption == 'FULLQTR') {
+				it.particulars = 'paid until qtr ' + it.qtr;
+			}
+			else if( it.qtr > 0 ) {
+				it.particulars = 'paid until qtr ' + it.qtr;
+			}
+			it.ordate = dateSvc.format( 'yyyy-MM-dd', it.ordate );
+ 		}
+	}
+
+
+	@ProxyMethod
+	public def openForPermit( o ) {
+		def r = em.read( o );
+		r.payments.each {
+			it.ordate = dateSvc.parse( 'yyyy-MM-dd', it.ordate);
+			it.amount = new BigDecimal(it.amount);
+		}
+		r.lobs = r.lobs.findAll{ it.assessmenttype != 'RETIRE' }
+		r.barcode = '51005:'+r.bin;
+		return r;
+	}
+
+	@ProxyMethod
+	public void rebuildPermit( o ) {
+		def p = em.read( [objid: o.objid] );
+		def b = bizInfo.open( [objid: p.businessid] );
+		copy(p,b);
+		em.update( p );	
+	}
+
+	@ProxyMethod
+	public def reissuePermit( o ) {
+		em.deactivatePermit(o);
+		return create(o);
+	}
+
+} 

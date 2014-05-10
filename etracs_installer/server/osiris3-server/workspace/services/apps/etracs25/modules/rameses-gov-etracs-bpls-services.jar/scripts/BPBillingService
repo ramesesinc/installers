@@ -1,0 +1,125 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*
+import java.math.*;
+
+public class BPBillingService  {
+
+	@Service("BPBillingRuleService")
+	def billingSvc;
+	
+	@ActiveDB("business")
+	def biz;
+	
+	@Service("NumberService")
+	def numberSvc;
+
+	@Service("DateService")
+	def dateSvc;
+
+	@ActiveDB("bpledger")
+	def bpLedger;
+
+	@ProxyMethod
+	public def getBillByApp(def o) throws Exception {
+		//by business id
+		def p = [appid: o.objid];
+		p.filter = ''' app.objid=$P{appid} ''';
+		def list = bpLedger.getUnpaidForBilling(p);
+		def b = execute(o, list);
+		b.barcode = "51005:"+o.appno;
+		return b;
+	}
+
+	@ProxyMethod
+	public def getReport(def o) throws Exception {
+		//by business id
+		def p = [businessid: o.objid];
+		p.filter = ''' br.businessid=$P{businessid} ''';
+		def list = bpLedger.getUnpaidForBilling(p);
+		return execute(o, list);
+	}
+
+	public def execute(def o, def list) throws Exception {
+		/**
+		* To calculate next due date do the following:
+		* For new business, next due date would mean January 1 of next year. 
+		* For renew business, next due date is the nearest qtr deadline or month 
+		* nearest to actual date. 
+		* Example: 
+		*    If date is Mar 25 next due date would be April 1
+		*    If date is April 2 next due date would be April 20. 
+		*/
+
+		def payoption = [type: 'FULLYEAR'];
+		def billdate = dateSvc.serverDate;
+
+		list.each {
+			if(it.lob?.objid && !it.lob?.assessmenttype)
+				throw new Exception("Please rebuild the ledger. There is no line of business type");
+			if(!it.taxfeetype)
+				throw new Exception("All items must have a taxfee type");	
+		}
+		
+		def z = billingSvc.getBillItems(list, billdate, payoption);	
+		//check if there is a line w/o assessment type
+		
+		
+		def result = [:];	
+		result.billitems = z.items;
+		def barcode = "51005:"+o.bin;
+		def  data = [
+           ownername: o.owner.name, 
+           owneraddress: o.owner.address, 
+           billdate: billdate, 
+           expirydate:z.validUntil,
+           barcode: barcode
+        ];
+        
+
+        data.items = [];
+        def app = [:]
+        app.appno = o.appno;
+        app.txntype = o.apptype;
+		app.docstate = "APPROVED";
+		app.txndate = o.dtfiled; 
+		app.tradename = o.tradename;
+		app.address = o.businessaddress.text;
+
+		app.taxfees = result.billitems.collect {
+        	[
+        		year:it.year,
+        		qtr:((it.qtr==0)?null:it.qtr),
+        		lobname: it.lob?.name,
+        		applicationtype: it.assessmenttype,
+        		accttitle: it.account.title,
+        		duedate: it.duedate,
+        		amount: new BigDecimal(it.amtdue),
+        		surcharge: new BigDecimal(it.surcharge),
+        		interest: new BigDecimal(it.interest),
+        		discount: new BigDecimal(it.discount),
+        		total: new BigDecimal(it.total)
+        	]
+        }
+
+        //calculate quarter totals
+		app.first_qtr_total = new BigDecimal(z.total_q1);
+        app.second_qtr_total = new BigDecimal(z.total_q2);
+        app.third_qtr_total = new BigDecimal(z.total_q3);
+        app.fourth_qtr_total = new BigDecimal(z.total_q4); 
+
+		app.totalamount = new BigDecimal(z.total_amtdue);
+		app.totalsurcharge = new BigDecimal(z.total_surcharge);
+		app.totaldiscount = new BigDecimal(z.total_discount);
+        app.totalinterest = new BigDecimal(z.total_interest);
+        app.grandtotal = new BigDecimal(z.total);
+        
+        data.grandtotal = app.grandtotal;
+        
+        data.items << app;
+        return  data;
+	}
+
+
+}

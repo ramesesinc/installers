@@ -105,9 +105,9 @@
     <target name="-insert-orgclass-province-municipality"> 
         <echo file="${temp.dir}/temp/extended.sql" append="true">
         <![CDATA[ 
-INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('PROVINCE', 'PROVINCE', NULL);
-INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('MUNICIPALITY', 'MUNICIPALITY', 'PROVINCE'); 
-INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('BARANGAY', 'BARANGAY', 'MUNICIPALITY'); 
+INSERT INTO sys_orgclass (name, title, parentclass, handler) VALUES ('PROVINCE', 'PROVINCE', NULL, 'province');
+INSERT INTO sys_orgclass (name, title, parentclass, handler) VALUES ('MUNICIPALITY', 'MUNICIPALITY', 'PROVINCE', 'municipality'); 
+INSERT INTO sys_orgclass (name, title, parentclass, handler) VALUES ('BARANGAY', 'BARANGAY', 'MUNICIPALITY', 'barangay'); 
 
         ]]> 
         </echo> 
@@ -151,9 +151,9 @@ VALUES
     <target name="-insert-orgclass-city"> 
         <echo file="${temp.dir}/temp/extended.sql" append="true">
         <![CDATA[ 
-INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('CITY', 'CITY', NULL); 
-INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('DISTRICT', 'DISTRICT', 'CITY'); 
-INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('BARANGAY', 'BARANGAY', 'DISTRICT'); 
+INSERT INTO sys_orgclass (name, title, parentclass, handler) VALUES ('CITY', 'CITY', NULL, 'city'); 
+INSERT INTO sys_orgclass (name, title, parentclass, handler) VALUES ('DISTRICT', 'DISTRICT', 'CITY', 'district'); 
+INSERT INTO sys_orgclass (name, title, parentclass, handler) VALUES ('BARANGAY', 'BARANGAY', 'DISTRICT', 'barangay'); 
 
         ]]> 
         </echo>   
@@ -319,13 +319,13 @@ VALUES
             def imagedbhost = properties['image.db.host'];
             def imagedbname = properties['image.db.name'];
             def imagedbuser = properties['image.db.user'];
-            def imagedbpwd = properties['image.db.pwd'];
-            def imageds_content = properties['imageds_content']; 
-            if (!imageds_content) imageds_content = '';            
+            def imagedbpwd  = properties['image.db.pwd']; 
+            def imageds_content = properties['imageds_content'];             
+            if (!imageds_content) imageds_content = '';
             imageds_content = imageds_content.replaceAll('@dbhost', imagedbhost? imagedbhost: ''); 
             imageds_content = imageds_content.replaceAll('@dbname', imagedbname? imagedbname: ''); 
             imageds_content = imageds_content.replaceAll('@dbuser', imagedbuser? imagedbuser: ''); 
-            imageds_content = imageds_content.replaceAll('@dbpwd',  imagedbpwd? imagedbpwd: '');             
+            imageds_content = imageds_content.replaceAll('@dbpwd', imagedbpwd? imagedbpwd: ''); 
 
             def dsdir = properties['target.dir']+'/osiris3-server/workspace/services/datasources';
             ant.echo(file: dsdir+'/localds', message: appds_content); 
@@ -334,6 +334,17 @@ VALUES
 
             dsdir = properties['target.dir']+'/osiris3-server-notification/workspace/services/datasources'; 
             ant.echo(file: dsdir+'/notificationds', message: appds_content); 
+
+            def buffer = new StringBuffer();
+            def lgutype = properties['lgu.type'].toLowerCase(); 
+            if (lgutype == 'city') {
+                buffer.append('\n<module file="rameses-gov-etracs-city.jar" version="2.0"/> '); 
+            } else if (lgutype == 'municipality') {
+                buffer.append('\n<module file="rameses-gov-etracs-municipality.jar" version="2.0"/> '); 
+            } else if (lgutype == 'province') {
+                buffer.append('\n<module file="rameses-gov-etracs-province.jar" version="2.0"/> '); 
+            }
+            properties['additional_modules'] = buffer.toString(); 
         ]]> 
         </groovy>        
 
@@ -354,6 +365,7 @@ VALUES
         <replace file="${ws.web.modules.dir}/updates.xml" token="@lguname" value="${lgu.name}" />
         <replace file="${ws.web.modules.dir}/updates.xml" token="@apphost" value="${app.host}" />
         <replace file="${ws.web.modules.dir}/updates.xml" token="@imagehost" value="${image.host}" />
+        <replace file="${ws.web.modules.dir}/updates.xml" token="@additional_modules" value="${additional_modules}" /> 
     </target>
 	
     <target name="cleanup-temp">

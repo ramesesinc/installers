@@ -1,0 +1,172 @@
+package bpbilling;
+
+import java.util.*;
+import bpls.facts.*;
+import com.rameses.rules.common.*;
+import java.math.*;
+
+global RuleAction action;
+
+rule "assert-qtr-deadlines"
+	agenda-group "initial"
+	salience -20
+	no-loop
+	when
+		BPApplication($year: appyear)
+	then
+		insert( new QtrDeadline($year, 1));
+		insert( new QtrDeadline($year, 2));
+		insert( new QtrDeadline($year, 3));
+		insert( new QtrDeadline($year, 4));
+		drools.setFocus( "dd" );
+end
+
+rule "set-qtr-deadline"
+	agenda-group "dd"
+	salience -30
+	no-loop
+	when
+		$q: QtrDeadline()
+	then	
+		Map map = new HashMap();
+		map.put("entry", $q);
+		action.execute( "set_qtr_deadline", map, drools );
+		update($q);
+end
+
+rule "set-deadline-newbusiness"
+	agenda-group "initial"
+	salience -40
+	no-loop
+	when
+		BPApplication($year: appyear)
+		TF: BillItem(qtr == 0)
+	then
+		if( $year > 0) {
+			Calendar cal = Calendar.getInstance();
+			cal.set( $year, 0, 1);
+			TF.setDeadline( cal.getTime() );
+		}
+end
+
+rule "set-deadline"
+	agenda-group "initial"
+	salience -40
+	no-loop
+	when
+		BillDate( $date: date )
+		QtrDeadline( $qtr:qtr, $deadline: deadline!=null)
+		TF: BillItem( qtr == $qtr )
+	then
+		TF.setDeadline( $deadline );
+		if( $date.after($deadline) ) {
+			TF.setExpired(true);
+		}
+end
+
+rule "set-deadline-year"
+	agenda-group "initial"
+	salience -40
+	no-loop
+	when
+		BillDate( $date: date )
+		QtrDeadline( $qtr:qtr == 1, $deadline: deadline)
+		TF: BillItem( qtr == 0 )
+	then
+		TF.setDeadline( $deadline );
+		if( $date.after($deadline) ) {
+			TF.setExpired(true);
+		}
+end
+
+#######################################
+# FULL PAYMENT AND QTR PAYMENT
+# if payment not specified
+#######################################
+rule "distribute-full-payment"
+	agenda-group "apply-payment"
+	when
+		PayOption( type == "FULLYEAR" )
+		not Payment()
+		TF: BillItem()
+	then
+		action.execute( "collect_full", TF, drools );
+		retract( TF );
+end
+
+rule "distribute-qtr-payment"
+	agenda-group "apply-payment"
+	when
+		PayOption( type == "FULLQTR", $qtr: qtr )
+		not Payment()
+		TF: BillItem( $p: paypriority, qtr <= $qtr )
+	then
+		action.execute( "collect_full", TF, drools );
+		retract( TF );
+end
+
+#######################################
+# PARTIAL PAYMENT (PARTIAL COMPLETE)
+# if payment is specified
+# full if payment not consumed
+# under if payment is less
+# excess if payment is more
+#######################################
+rule "distribute-partial-payment"
+	salience 100
+	agenda-group "apply-payment"
+	when
+		TF: BillItem( $d: deadline, $total:total )
+		not BillItem( deadline < $d )
+		P: Payment( $bal:balance >= $total )
+	then
+		action.execute( "collect_full", TF, drools );
+		retract( TF );
+		P.setBalance( $bal - $total );
+		update(P);
+end
+
+rule "distribute-under-payment"
+	salience 50
+	agenda-group "apply-payment"
+	when
+		TF: BillItem( $d: deadline, $total:total )
+		not BillItem( deadline < $d )
+		P: Payment( $bal:balance < $total, balance > 0 )
+	then
+		Map m = new HashMap();
+		m.put("billitem",TF);
+		m.put("amtpaid", new BigDecimal($bal+"").doubleValue() );
+		action.execute( "collect_partial", m, drools );
+		retract( TF );
+		P.setBalance( 0 );
+		update(P);
+end
+
+rule "distribute-excess"
+	salience 0
+	agenda-group "apply-payment"
+	when
+		not BillItem( )
+		P: Payment( $excess:balance > 0 )
+	then
+		Map m = new HashMap();
+		m.put("excess",$excess);
+		action.execute( "collect_excess", m, drools );
+		retract( P );
+end
+
+#####################################################################
+# we change valid until to qtr deadline if deadline is between 
+# billdate and month end.
+#####################################################################
+rule "calculate-valid-until"
+	salience -100
+	agenda-group "apply-payment"
+	when
+		QtrDeadline( $deadline: deadline)			
+		BD: BillDate(  date <= $deadline, monthEnd > $deadline )
+	then
+		BD.setValidUntil( $deadline );
+end
+

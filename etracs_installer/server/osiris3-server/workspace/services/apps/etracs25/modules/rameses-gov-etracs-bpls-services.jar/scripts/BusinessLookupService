@@ -1,0 +1,54 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+import java.rmi.server.*;
+import com.rameses.services.extended.*;
+
+public class BusinessLookupService extends ActiveListService {
+
+	@ActiveDB("business")
+	def em;
+
+	String pagingKeys = "b.objid";
+	String listMethod = "getLookup";
+
+	@ProxyMethod
+	public def getColumns(def o) {
+		return [
+			[name:"bin", caption:"BIN"],
+			[name:"businessname", caption:"Business Name"],
+			[name:"owner.name", caption:"Owner"],
+			[name:"businessaddress.text", caption:"Business Address"],
+		];
+	}
+
+	public void beforeList(o) {
+		o.filter = '';
+		if( o.bin ) {
+			o.bin += "%";
+			o.filter += ' AND b.bin LIKE $P{bin} ';
+		}	
+		if(o.ownerid) {
+			o.filter += ' AND b.owner_objid =$P{ownerid} ';
+		}
+		if( o.ownername ) {
+			o.ownername += "%";
+			o.filter += ' AND b.owner_name LIKE $P{ownername} ';
+		}	
+		if( o.businessname ) {
+			o.businessname += "%";
+			o.filter += ' AND b.businessname LIKE $P{businessname} ';
+		}	
+		if(o.state ) {
+			o.filter += ' AND b.state = $P{state} ';
+		}
+		//if none specified, make sure no records will be returned
+		if(!o.filter) {
+			o.filter = " AND b.objid IS NULL ";
+		}
+	}
+
+	public void afterList(o,list) {
+		//if(!list) throw new Exception("No records found");
+	}
+
+}

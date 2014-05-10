@@ -10,12 +10,11 @@ Compression=lzma2
 SolidCompression=yes
 OutputDir=userdocs:Inno Setup Examples Output
 LicenseFile=license.txt
-                                                   
+                                                            
 [Files]                   
 Source: "jre-6u45-windows-i586.exe"; Flags: dontcopy
 Source: "jre-6u45-windows-x64.exe"; Flags: dontcopy
 Source: "server\splash_setup.bmp"; Flags: dontcopy    
-Source: "etracs25db.sql"; Flags: dontcopy  
 Source: "server\*"; DestDir: "{tmp}"; Flags: recursesubdirs  
 Source: "server\osiris3-server\*"; DestDir: "{app}\osiris3-server"; Flags: recursesubdirs 
 Source: "server\osiris3-server-notification\*"; DestDir: "{app}\osiris3-server-notification"; Flags: recursesubdirs 

@@ -1,0 +1,69 @@
+import com.rameses.annotations.*;
+import com.rameses.services.extended.*;
+import java.rmi.server.*;
+
+
+class BusinessUnifiedFormService  {
+
+	@ActiveDB("businesspermit")
+	def em;
+
+    @Service("LOVService")
+    def LOV;
+
+	@ProxyMethod
+	public def open( o ) {
+		def entity = em.read( o );
+        def format = { x->
+            def dtype = x.attribute.datatype;
+            if( dtype == 'decimal') {
+                if(!x.value) return null;
+                return new Double( x.value + "" );
+            }
+            else if( dtype == "integer") {
+                if(!x.value) return null;
+                return new Integer( x.value + "" );
+            }
+            else if( dtype == "boolean" ) {
+                return x.value;
+            }
+            else {
+                if(!x.value) return null;
+                return x.value;
+            }
+        }
+        def infos = [];
+        def lobs = entity.lobs.findAll{ it.assessmenttype != 'RETIRE' };
+        lobs.each { lb->
+            def m = [:];
+            m.lob = lb.name;
+            for( x in entity.assessmentinfos.findAll{it.lob?.objid == lb.lobid } ) { 
+                try {
+                    m[x.attribute.name.toLowerCase()] = format(x);
+                }catch(ign){;}  
+            };
+            infos << m;
+        }   
+        entity.lobs = lobs;
+        def data = [:];
+        data.putAll( entity );
+        data.appno = entity.permitno;
+        data.dtfiled  = entity.dtissued;
+        data.bin = entity.bin;
+        data.infos = infos;
+        data.requirements = [];
+        data.signatories = [];
+        data.barcode =  "51005:"+entity.bin
+        entity.appinfos.each {
+            data[ it.attribute.name.toLowerCase() ] = format(it); 
+        }
+        entity.assessmentinfos.findAll{it.lob?.objid==null}.each {
+            data[ it.attribute.name.toLowerCase() ] = format(it); 
+        }   
+
+        if(data.orgtype) data.orgtypename = LOV.ORG_TYPES[data.orgtype];
+
+        return data;
+	}
+
+} 
