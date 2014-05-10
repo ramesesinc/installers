@@ -1,0 +1,7 @@
+provider=script
+app.host=localhost:8071
+app.context=notification
+app.cluster=osiris3
+readTimeout=30000
+env.acctname=
+env.apikey=

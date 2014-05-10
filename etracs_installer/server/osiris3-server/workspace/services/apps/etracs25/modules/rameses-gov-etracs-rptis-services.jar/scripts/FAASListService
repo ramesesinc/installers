@@ -1,0 +1,144 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+
+
+class FAASListService
+{
+	@PersistenceContext('main')
+	def em
+
+    @Service('RPTUtil')
+    def util
+
+    @Service('Var')
+    def var 
+
+
+    def STATE_INTERIM           = 'INTERIM'
+    def STATE_FORTAXMAPPING     = 'FORTAXMAPPING'
+    def STATE_FORAPPRAISAL      = 'FORAPPRAISAL'
+    def STATE_FORAPPROVAL       = 'FORAPPROVAL'
+    def STATE_FORPROVSUBMISSION = 'FORPROVSUBMISSION'
+    def STATE_FORPROVAPPROVAL   = 'FORPROVAPPROVAL'
+    def STATE_CURRENT           = 'CURRENT'
+    def STATE_CANCELLED         = 'CANCELLED'
+
+
+    @ProxyMethod
+    public def getList( params ) {
+        def whereclause = ''
+        if (params.state ) {
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' f.state = $P{state} '
+        }
+        if (params.ry != null ) {
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' rpu.ry = $P{ry} '
+        }
+        if (params.ownername) {
+            params.ownername += '%'
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' f.name LIKE $P{ownername} '
+        }
+        if (params.fullpin) {
+            params.fullpin += '%'
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' rpu.fullpin LIKE $P{fullpin} '
+        }
+        if (params.tdno ) {
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' f.tdno = $P{tdno} '
+        }
+        if (params.prevtdno ) {
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' f.prevtdno = $P{prevtdno} '
+        }
+        if (params.barangay){
+            params.barangayid = params.barangay.objid
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' rp.barangayid LIKE $P{barangayid} '
+        }
+        if (params.rputype){
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' rpu.rputype = $P{rputype} '
+        }
+        if (params.surveyno){ 
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' rp.surveyno = $P{surveyno} '
+        }
+        if (params.cadastrallotno){
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' rp.cadastrallotno = $P{cadastrallotno} '
+        }
+        if (params.trackingno){
+            if (whereclause) whereclause += ' AND '
+            whereclause += ' t.trackingno = $P{trackingno} '
+        }
+        if (params.titleno){
+            params.titleno += '%'
+            if (whereclause) whereclause += ' AND ' 
+            whereclause += ' f.titleno LIKE $P{titleno} '
+        }
+        if (params.taxpayer){
+            params.taxpayerid = params.taxpayer.objid 
+            if (whereclause) whereclause += ' AND ' 
+            whereclause += ' f.taxpayer_objid LIKE $P{taxpayerid} '
+        }
+
+        if (whereclause) whereclause = ' AND ' + whereclause
+        params.filters = whereclause
+        def qry = em.sqlContext.createNamedQuery('faas:getList')
+
+        qry.setPagingKeys('f.objid')  
+
+        if ( params._start)
+            qry.setFirstResult(params._start)
+        if (params._limit)
+            qry.setMaxResults(params._limit) 
+
+        return qry.setVars(params).setParameters(params).resultList 
+    }
+	
+
+
+    @ProxyMethod
+    public def getColumns(params) {
+        return [
+            [name:"state", caption:"State", width:100],
+            [name:"ry", caption:"RY", width:50, type:'integer', format:'0000'],
+            [name:"tdno", caption:"TD No.", width:140],
+            [name:"prevtdno", caption:"Previous TD No.", width:140],
+            [name:"txntype.objid", caption:"Txn", width:50],
+            [name:"rputype", caption:"Type", width:80],
+            [name:"classification.code", caption:"Class", width:50], 
+            [name:"fullpin", caption:"PIN", width:200],
+            [name:"barangay.name", caption:"Barangay", width:200],
+            [name:"owner.name", caption:"Owner Name", width:250],
+            [name:"cadastrallotno", caption:"Lot No.", width:100],
+            [name:"totalareasqm", caption:"Area (sqm)", width:120, type:'decimal', format:'#,##0.00'],
+            [name:"totalmv", caption:"Market Value", width:100, type:'decimal', format:'#,##0.00'],
+            [name:"totalav", caption:"Assessed Value", width:100, type:'decimal', format:'#,##0.00'],
+        ]
+    }
+
+    @ProxyMethod
+    public def getStates(  ) {
+        if ('city'.equalsIgnoreCase(var.lgu_type)){
+            return [
+                STATE_INTERIM, 
+                STATE_FORAPPROVAL,
+                STATE_CURRENT,
+                STATE_CANCELLED,
+            ]
+        }
+        else{
+            return [
+                STATE_INTERIM, 
+                STATE_FORPROVAPPROVAL,
+                STATE_CURRENT,
+                STATE_CANCELLED,
+            ]
+        }
+    }
+}
+

@@ -1,0 +1,193 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+
+class TDReportService
+{
+    @PersistenceContext('rpt')
+    def em
+    
+	@Service('NumberService')
+    def numberSvc
+	
+	@Service('Var')
+	def var 
+	
+	@Service('DateService')
+	def dtSvc
+	
+	@Service('FAASService')
+	def faasSvc 
+
+	@Service('RPTUtil')
+	def util 
+
+	@Service('TxnSignatoryService')
+	def signatorySvc 
+
+	@ProxyMethod 
+	public def getFaasIds(params) {
+		params.section = params.section ? params.section : '%'
+		return em.sqlContext.createNamedQuery('faas:getFaasIds').setParameters( params).resultList;
+	}
+	
+
+	@ProxyMethod
+	public def buildTaxDec(faasid){
+		def td = em.sqlContext.createNamedQuery('tdreport:getTDInfo')
+						.setParameter('faasid', faasid).singleResult
+		if (!td) throw new Exception('FAAS does not exist or has already been deleted.')
+
+		td.taxable = util.toBoolean(td.taxable, true)
+		td.propertytype = td.rputype
+		signatorySvc.loadSignatories('faas', td)
+		td.location = td.lguname
+		if (td.parentlguname) {
+			td.location +=  (td.location ? ', ' : '') + td.parentlguname
+		}
+		
+		td.avinwords = numberSvc.convertDouble( td.totalav ).toUpperCase() + ' AND 00/100'
+
+		if (util.isFalse(var.td_report_display_appraisedby)) {
+			td.appraisedby = null
+			td.appraisedbytitle = null 
+		}
+
+		td.display_recommendedby = var.td_report_display_recommendedby ? var.td_report_display_recommendedby : '1'
+
+		if(td.claimno) {
+			td.fullpin += ' M' + td.claimno
+		}
+
+		td.released = false
+		if( td.released ) {
+			td.appraiser?.name = ( td.appraiser?.name ? '(SGD.) ' + td.appraiser?.name : null )
+			td.recommender?.name = ( td.recommender?.name ? '(SGD.) ' + td.recommender?.name : null )
+			td.approver?.name = ( td.approver?.name ? '(SGD.) ' + td.approver?.name : null )
+		}
+
+		td.address = concatHousenoStreetPurok( td ) 
+
+		td.annotations =  em.sqlContext.createNamedQuery('tdreport:getAnnotationMemoranda')
+								.setParameter('faasid', faasid)
+								.resultList
+		td.annotated = (td.annotations.size() > 0)
+
+		clearRealPropertyInfo(td)
+
+		buildRpuAssessment(td)
+
+		return td 
+	}
+
+	def concatHousenoStreetPurok(td ){
+		def address = ''
+		if (td.houseno) address += td.houseno 
+
+		if (td.street) {
+			if ( address.length() > 0 ) address += ', '
+			address += td.street
+		}
+
+		if (td.purok) {
+			if ( address.length() > 0 ) address += ', '
+			address += td.purok
+		}
+		return address 
+	}
+	
+
+	void buildRpuAssessment(td){
+		buildLandRpuAssessment(td)
+		buildBldgRpuAssessment(td)
+		buildMachRpuAssessment(td)
+		buildPlantTreeRpuAssessment(td)
+		buildMiscRpuAssessment(td)
+	}
+
+	void buildLandRpuAssessment(td){
+		if (td.rputype != 'land') return 
+
+		if( var.td_report_item_format?.equalsIgnoreCase('BLGF') ) {
+			td.lands = em.sqlContext.createNamedQuery('tdreport:getStandardLandAssessment')
+							.setParameter('faasid', td.faasid).resultList
+		}
+		else {
+			td.lands = em.sqlContext.createNamedQuery('tdreport:getDetailedLandAssessment')
+							.setParameter('faasid', td.faasid).resultList
+			td.plants = em.sqlContext.createNamedQuery('tdreport:getLandPlantTreeAssessment')
+							.setParameter('faasid', td.faasid).resultList
+		}
+
+		//if multiple area, set mixedarea = 1 otherwise = 0
+		//in the report display sqm for the total area in cases of mixedarea = 1
+		def uniqueareatypelist = td.lands.areatype.unique()
+		if( uniqueareatypelist.size() > 1 ) {
+			td.lands.each{ it.mixedarea = 1 }
+		}
+		else {
+			td.lands.each{ it.mixedarea = 0 }
+		}
+	}
+
+	void buildBldgRpuAssessment(td){
+		if (td.rputype != 'bldg') return 
+
+		def bldginfo  = em.sqlContext.createNamedQuery('tdreport:getBldgInfo')
+							.setParameter('faasid', td.faasid ).singleResult
+		td.putAll(bldginfo)
+		
+		if( td.useswornamount || util.isTrue(td.predominant) ) {
+			td.buildings = em.sqlContext.createNamedQuery('tdreport:getPredominantAssessment')
+								.setParameter('faasid', td.faasid).resultList
+		} else {
+			td.buildings = em.sqlContext.createNamedQuery('tdreport:getDetailedAssessment')
+								.setParameter('faasid', td.faasid).resultList
+		}
+	}
+
+	void buildMachRpuAssessment(td){
+		if (td.rputype != 'mach') return 
+
+		def machinelist = em.sqlContext.createNamedQuery('tdreport:getMachines')
+							.setParameter('faasid', td.faasid).resultList
+		td.machinenames = machinelist.machinename.join(', ')
+
+		if (util.isTrue(var.td_show_machine_details))
+			td.machines = em.sqlContext.createNamedQuery('tdreport:getMachineDetailedAssessment')
+							.setParameter('faasid', td.faasid).resultList
+		else 
+			td.machines = em.sqlContext.createNamedQuery('tdreport:getMachineAssessment')
+							.setParameter('faasid', td.faasid).resultList
+	}
+
+	void buildPlantTreeRpuAssessment(td){
+		if (td.rputype != 'planttree') return 
+		td.plants = em.sqlContext.createNamedQuery('tdreport:getPlantTreeAssessment')
+							.setParameter('faasid', td.faasid).resultList
+	}
+
+	void buildMiscRpuAssessment(td){
+		if (td.rputype != 'misc') return 
+		def misclist = em.sqlContext.createNamedQuery('tdreport:getMiscItems')
+							.setParameter('faasid', td.faasid).resultList 
+		td.miscdescriptions = misclist.name.join(', ')
+
+		td.miscitems = em.sqlContext.createNamedQuery('tdreport:getMiscAssessment')
+							.setParameter('faasid', td.faasid).resultList
+	}
+
+	void clearRealPropertyInfo( td ) {
+		if( util.isFalse(var.td_show_landinfo_on_improvements)) {
+			td.titleno 		= ''
+			td.cct			= ''
+			td.cctdate		= null
+			td.surveyno		= ''
+			td.cadastrallotno = ''
+			td.blockno		= ''
+			td.north		= ''
+			td.south		= ''
+			td.east			= ''
+			td.west			= ''
+		}
+	}
+}

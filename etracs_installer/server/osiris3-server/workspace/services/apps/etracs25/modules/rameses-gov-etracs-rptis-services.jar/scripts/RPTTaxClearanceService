@@ -1,0 +1,122 @@
+import com.rameses.annotations.*
+import com.rameses.eserver.*;
+import com.rameses.common.*;
+
+class RPTTaxClearanceService 
+{
+    @PersistenceContext('rpt')
+    def em;
+
+    @Service('RPTCertificationService')
+    def certSvc 
+
+    @Service('SequenceService')
+    def seqSvc;
+
+    @Service('DateService')
+    def dtSvc 
+
+    @Service('RPTUtil')
+    def util
+
+    @Service('Var')
+    def var 
+
+    @Service('ReportParameterService')
+    def paramSvc 
+
+    
+
+    @ProxyMethod
+    public def initClearance(  ) {
+        return [
+            objid               : util.generateId('AN'),
+            opener              : 'rpttaxclearance',
+            year                : dtSvc.serverYear,
+            qtr                 : 4,
+            certifiedby         : var.treasurer_name,
+            certifiedbytitle    : var.treasurer_title,
+            purpose             : 'for whatever legal purpose it may serve him/her best.',
+            oramount            : 0.0,
+            stampamount         : 0.0,
+            items               : [],
+            official            : false,
+        ]
+    }
+
+
+    @ProxyMethod
+    public def createClearance( cert ) {
+        if (!cert.items)
+            throw new Exception('At least one property must be included.')
+
+        cert.items.each{
+            if (it.lastyearpaid < cert.year) 
+                throw new Exception('TD No. ' + it.tdno + ' is not cleared for the year ' + cert.year + '.')
+            if (it.lastyearpaid == cert.year && it.lastqtrpaid < cert.qtr) 
+                throw new Exception('TD No. ' + it.tdno + ' is not cleared for the ' + formalizeNumber(cert.qtr) + ' qtr of ' + cert.year + '.' )
+        }
+
+        def year = dtSvc.serverYear
+        cert.txnno = year + seqSvc.getNextFormattedSeries('RPTTAXCLEARANCE-' + year )
+        certSvc.createCertification(cert)
+        cert.items.each{
+            certSvc.createItem(it)
+        }
+        em.sqlContext.createNamedExecutor('rpttaxclearance:insertTaxClearance')
+                .setParameters(cert)
+                .execute()
+                
+        buildAdditionalInfo(cert)
+        loadPaymentInfo(cert)
+        return cert 
+    }
+
+    
+    @ProxyMethod
+    public def openClearance( objid ) {
+        def cert = certSvc.openCertification(objid)
+        cert.putAll( 
+            em.sqlContext.createNamedQuery('rpttaxclearance:getInfo')
+                    .setParameter('objid', objid )
+                    .singleResult
+        )
+        buildAdditionalInfo(cert)
+        cert.items = em.sqlContext.createNamedQuery('rpttaxclearance:getItems')
+                            .setParameter('rptcertificationid', objid)
+                            .resultList
+        loadPaymentInfo(cert)
+        return cert 
+    }
+
+
+    @ProxyMethod
+    public def getClearedLedgers(cert) {
+        util.required('Taxpayer', cert.taxpayer.objid)
+        util.required('Year', cert.year)
+        util.required('Qtr', cert.qtr)
+        cert.taxpayerid = cert.taxpayer.objid 
+        return em.sqlContext.createNamedQuery('rpttaxclearance:getClearedLedgers')
+                .setParameters(cert)
+                .resultList 
+    }
+
+    void buildAdditionalInfo(cert){
+        def pdate = dtSvc.parseDate(cert.txndate, null)
+        cert.issueday      = util.formalizeNumber(pdate.day)
+        cert.issuemonth    = util.getMonthName(pdate.month)
+        cert.issueyear     = pdate.year +''
+        cert.issueplace    = ( var.lgu_formal_name  ? var.lgu_formal_name : paramSvc.standardParameter.LGUFORMALNAME)
+    }
+
+    void loadPaymentInfo(cert){
+        cert.items.each{item ->
+            item.payments = em.sqlContext.createNamedQuery('rpttaxclearance:getPaymentInfo')
+                                .setParameter('rptcertificationid', cert.objid)
+                                .setParameter('rptledgerid', item.refid )
+                                .setParameter('year', cert.year)
+                                .setParameter('qtr', cert.qtr)
+                                .resultList 
+        }
+    }
+}

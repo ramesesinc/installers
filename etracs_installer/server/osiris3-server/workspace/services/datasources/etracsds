@@ -1,0 +1,6 @@
+dialect=mysql
+driverClass=com.mysql.jdbc.Driver
+url=jdbc:mysql://@etracsdbhost/mysql
+user=@etracsdbuser
+pwd=@etracsdbpwd
+maxPoolSize=100

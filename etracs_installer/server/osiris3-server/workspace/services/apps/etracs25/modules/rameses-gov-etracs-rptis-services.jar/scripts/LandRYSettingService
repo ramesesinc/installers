@@ -1,0 +1,508 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.util.*
+
+public class LandRYSettingService
+{
+    @PersistenceContext('rpt')
+    def em
+     
+    @Service('PropertyClassificationService')
+    def pcSvc
+
+    @Service('LandRYSettingListService')
+    def listSvc 
+    
+    @Service('RYSettingService')
+    def rysettingSvc
+    
+    @Service('Var')
+    def var 
+
+    @Service('RPTUtil')
+    def util
+    
+    def SCHEMA_LANDRYSETTING        = 'landrysetting' 
+    def SCHEMA_LANDASSESSLEVEL      = 'landrysetting:landassesslevel' 
+    def SCHEMA_LANDASSESSLEVELRANGE = 'landrysetting:landassesslevelrange' 
+    def SCHEMA_SPECIFICCLASS        = 'landrysetting:lcuvspecificclass' 
+    def SCHEMA_SUBCLASS             = 'landrysetting:lcuvsubclass' 
+    def SCHEMA_STRIPPING            = 'landrysetting:lcuvstripping' 
+    def SCHEMA_LANDADJUSTMENTTYPE   = 'landrysetting:landadjustmenttype' 
+
+    def STATE_DRAFT     = 'DRAFT'
+    def STATE_APPROVED  = 'APPROVED'
+
+    def SETTING_TYPE    = 'land' 
+    
+    
+    @ProxyMethod
+    public boolean settingExists() {
+        def settings = listSvc.getList( null )
+        return settings.size() > 0
+    }
+    
+    
+    @ProxyMethod
+    public List getPropertyClassifications() {
+        return pcSvc.getClassifications([:])
+    }
+    
+    
+    @ProxyMethod
+    public def create( entity ) {
+        entity.state = STATE_DRAFT
+        buildAppliedToInfo(entity)
+        validate( entity )
+        em.create( SCHEMA_LANDRYSETTING, entity )
+        loadInitialAssessesLevels(entity)
+        rysettingSvc.createLgus( SETTING_TYPE, entity )
+        return entity 
+    }
+
+
+    @ProxyMethod 
+    public Map open( entity ) {
+        entity = em.read(SCHEMA_LANDRYSETTING, entity)
+        entity.lgus = rysettingSvc.loadLgus(SETTING_TYPE, entity.objid)
+        return entity
+    }
+
+
+    @ProxyMethod
+    public def update( entity ) {
+        if (!entity.lgus) throw new Exception('Applied to is required.')
+        buildAppliedToInfo(entity)
+        validate( entity )
+        em.update( SCHEMA_LANDRYSETTING, entity)
+        rysettingSvc.createLgus(SETTING_TYPE, entity )
+        return entity 
+    }
+
+
+    @ProxyMethod
+    public void delete( entity ) {
+        em.sqlContext.createNamedExecutor('landrysetting:deleteLandAdjustmentTypeClassificationBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('landrysetting:deleteLandAdjustmentTypesBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('landrysetting:deleteStrippingsBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('landrysetting:deleteSubClassesBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('landrysetting:deleteSpecificClassesBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('landrysetting:deleteRangesBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('landrysetting:deleteAssessLevelsBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('landrysetting:deleteRySettingLgu')
+                .setParameters(entity).execute()
+
+        em.delete(SCHEMA_LANDRYSETTING, entity)
+    }
+
+    @ProxyMethod
+    public def approve( entity ) {
+        checkApproved( entity )
+        entity.state = STATE_APPROVED
+        em.update(SCHEMA_LANDRYSETTING, entity)    
+        return entity
+    }
+    
+
+    
+
+    /*----------------------------------------------------------
+    * AssessLevel Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public List getAssessLevels( landrysettingid )  {
+        return em.sqlContext.createNamedQuery('landrysetting:getAssessLevels')
+                .setParameter('landrysettingid', landrysettingid)
+                .resultList.each{
+                    it.fixrate = util.toBoolean(it.fixrate, true)
+                }
+    }
+
+
+    @ProxyMethod
+    public void saveAssessLevel( assesslevel ) {
+        def xal = EntityUtil.mapToField(assesslevel)
+        em.validate(SCHEMA_LANDASSESSLEVEL, xal )
+        em.save(SCHEMA_LANDASSESSLEVEL, xal)
+        if( util.isTrue(assesslevel.fixrate)) {
+            deleteRangesByAssessLevelId(assesslevel.objid)
+        }
+    }
+
+    
+    @ProxyMethod
+    public void deleteAssessLevel( assesslevel ) {
+        deleteRangesByAssessLevelId(assesslevel.objid)
+        em.delete(SCHEMA_LANDASSESSLEVEL, assesslevel )
+    }
+
+
+    @ProxyMethod
+    public List getRanges( landassesslevelid )  {
+        return em.sqlContext.createNamedQuery('landrysetting:getAssessLevelRanges')
+                .setParameter('landassesslevelid', landassesslevelid)
+                .resultList 
+    }
+
+
+    @ProxyMethod
+    public def saveRange( range  ) {
+        em.validate(SCHEMA_LANDASSESSLEVELRANGE, range)
+        em.save(SCHEMA_LANDASSESSLEVELRANGE, range)
+    }
+
+
+    @ProxyMethod
+    public def deleteRange( range  ) {
+        em.delete(SCHEMA_LANDASSESSLEVELRANGE, range)
+    }
+
+    @ProxyMethod
+    public void deleteRangesByAssessLevelId(landassesslevelid){
+        em.sqlContext.createNamedExecutor('landrysetting:deleteRangesByAssessLevelId')
+            .setParameter('landassesslevelid', landassesslevelid)
+            .execute()
+    }
+
+
+
+    /*----------------------------------------------------------
+    * SPECIFICCLASS SUPPORT
+    ----------------------------------------------------------*/
+    
+    @ProxyMethod
+    public def getSpecificClasses( landrysettingid, classificationid ){
+    	return em.sqlContext.createNamedQuery( 'landrysetting:getSpecificClasses' )
+                    .setParameter( 'landrysettingid', landrysettingid)
+                    .setParameter( 'classification_objid', classificationid)
+                    .resultList
+    }
+
+    
+    @ProxyMethod
+    public void saveSpecificClass( specificclass ) {
+        specificclass = EntityUtil.mapToField(specificclass)
+        em.validate(SCHEMA_SPECIFICCLASS, specificclass)
+        em.save(SCHEMA_SPECIFICCLASS, specificclass)
+    }
+
+    
+    @ProxyMethod
+    public void deleteSpecificClass( specificclass ) {
+        em.sqlContext.createNamedExecutor('landrysetting:deleteSubclasses')
+            .setParameter('specificclass_objid', specificclass.objid)
+            .execute()
+
+        em.delete(SCHEMA_SPECIFICCLASS, specificclass )
+    }
+
+
+
+    /*----------------------------------------------------------
+    * SUBLCLASS SUPPORT
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public def getSubClasses( specificclassid ){
+    	return em.sqlContext.createNamedQuery( 'landrysetting:getSubClasses' )
+                    .setParameter( 'specificclass_objid', specificclassid )
+                    .resultList
+    }
+    
+    
+    @ProxyMethod
+    public void saveSubClass( subclass ) {
+        subclass = EntityUtil.mapToField(subclass)
+        em.validate(SCHEMA_SUBCLASS, subclass )
+        em.save(SCHEMA_SUBCLASS, subclass )
+    }
+
+    
+    @ProxyMethod
+    public void deleteSubClass( subclass ) {
+        em.delete(SCHEMA_SUBCLASS, subclass )
+    }
+
+
+
+    /*----------------------------------------------------------
+    * STRIPPING SUPPORT
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public def getStrippings( landrysettingid, classificationid ){
+    	return em.sqlContext.createNamedQuery( 'landrysetting:getStrippings' )
+                    .setParameter( 'landrysettingid', landrysettingid )
+                    .setParameter( 'classification_objid', classificationid )
+                    .resultList
+    }
+    
+
+    @ProxyMethod
+    public void saveStripping( stripping ) {
+        stripping = EntityUtil.mapToField(stripping)
+        em.validate(SCHEMA_STRIPPING, stripping )
+        em.save(SCHEMA_STRIPPING, stripping )
+    }
+
+    
+    @ProxyMethod
+    public void deleteStripping( stripping ) {
+        em.delete(SCHEMA_STRIPPING, stripping )
+    }
+    
+    
+
+    /*----------------------------------------------------------
+    * LandAdjustmentTypes Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public List getLandAdjustmentTypes( landrysettingid )  {
+        return em.sqlContext.createNamedQuery('landrysetting:getLandAdjustmentTypes')
+                    .setParameter('landrysettingid', landrysettingid)
+                    .resultList
+    }
+
+
+    @ProxyMethod
+    public void saveLandAdjustmentType( landadjustmentype ) {
+        em.validate(SCHEMA_LANDADJUSTMENTTYPE, landadjustmentype )
+        em.save(SCHEMA_LANDADJUSTMENTTYPE, landadjustmentype )
+        deleteLandAdjustmentTypeClassifications(landadjustmentype)
+        landadjustmentype.classifications.each{
+            insertLandAdjustmentTypeClassification(landadjustmentype, it.classification)
+        }
+    }
+    
+
+    @ProxyMethod
+    public def openLandAdjustmentType( objid  ) {
+        def adjustment = em.read(SCHEMA_LANDADJUSTMENTTYPE, [objid:objid])    
+        if ( adjustment ){
+            adjustment.classifications = getAdjustmentClassifications( adjustment )
+        }
+        return adjustment 
+    }
+
+    List getAdjustmentClassifications( adjustment ){
+        return em.sqlContext.createNamedQuery('landrysetting:getLandAdjustmentTypeClassifications')
+                .setParameter('landadjustmenttypeid', adjustment.objid)
+                .resultList.each{
+                    EntityUtil.fieldToMap(it)
+                }
+    }
+
+
+    @ProxyMethod
+    public void deleteLandAdjustmentType( landadjustmenttype ) {
+        deleteLandAdjustmentTypeClassifications(landadjustmenttype)
+        em.delete(SCHEMA_LANDADJUSTMENTTYPE, landadjustmenttype )
+    }
+
+    void deleteLandAdjustmentTypeClassifications(landadjustmenttype){
+        em.sqlContext.createNamedExecutor('landrysetting:deleteLandAdjustmentTypeClassifications')
+                .setParameter('landadjustmenttypeid', landadjustmenttype.objid)
+                .execute() 
+    }
+
+    void insertLandAdjustmentTypeClassification(landadjustmenttype, classification){
+        em.sqlContext.createNamedExecutor('landrysetting:insertLandAdjustmentTypeClassification')
+            .setParameter('landrysettingid', landadjustmenttype.landrysettingid)
+            .setParameter('landadjustmenttypeid', landadjustmenttype.objid)
+            .setParameter('classification_objid', classification.objid)
+            .execute()
+    }
+    
+
+
+    /*----------------------------------------------------------
+    * COPY Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public Map copy( objid, ry ) {
+        //create setting 
+        def oldsettingid = objid
+        def setting = em.read( SCHEMA_LANDRYSETTING, [objid:objid] )
+        if (!setting) throw new Exception('Setting does not exists or has already been deleted.')
+
+        setting.previd = null
+        setting.objid = util.generateId('LS')
+        setting.ry = ry  
+        setting.appliedto = null
+        em.create( SCHEMA_LANDRYSETTING, setting )
+        
+        copyAssessLevels( setting.objid, oldsettingid )
+        copyLcuvs( setting.objid, oldsettingid )
+        copyLandAdjustmentTypes( setting.objid, oldsettingid )
+        return open( setting )
+    }
+
+    
+    @ProxyMethod
+    public Map reviseSetting( newry, copyYear ) {
+        required('Copy Year', copyYear )
+        if( newry <= copyYear ) throw new Exception('New Revision Year must be greater than copy year.')
+        def setting = em.sqlContext.createNamedQuery('landrysetting:getIdByRy').setParameter('ry', copyYear).singleResult
+        if( !setting ) throw new Exception('Revision Year ' + copyYear  + ' setting is not defined.')
+        
+        //create setting 
+        def oldsettingid = setting.objid 
+        setting = em.read( SCHEMA_LANDRYSETTING, [objid:oldsettingid] )
+        setting.previd = oldsettingid
+        setting.objid = util.generateId('LS')
+        setting.ry = newry  
+        checkDuplicateSetting( setting )
+        em.create( SCHEMA_LANDRYSETTING, setting )
+        
+        copyAssessLevels( setting.objid, oldsettingid )
+        copyLcuvs( setting.objid, oldsettingid )
+        copyLandAdjustmentTypes( setting.objid, oldsettingid )
+        rysettingSvc.copyLgus( SETTING_TYPE, setting.objid, oldsettingid)
+        return open( setting )
+    }
+
+
+
+    /*----------------------------------------------------------
+    * Support Methods
+    ----------------------------------------------------------*/
+    void validate( entity ) {
+        if( entity.ry <= 0 ) throw new Exception('Revision Year must be greater than zero.')
+        em.validate(SCHEMA_LANDRYSETTING, entity )
+    }
+    
+
+    void checkDuplicateSetting( entity ) {
+        def data = em.sqlContext.createNamedQuery('landrysetting:checkDuplicate').setParameters( entity ).singleResult
+        if( data ) throw new Exception('Setting for year ' + entity.ry + ' already exists.')
+    }
+    
+    
+	void required( caption, value ) {
+		def msg = caption + ' is required.' 
+		if( ! value ) 
+			throw new Exception( msg )
+		if( value instanceof String && value.trim().length() == 0 ) 
+			throw new Exception( msg )
+	}
+
+
+    void buildAppliedToInfo(entity){
+        if (! entity.lgus) {
+            entity.lgus = [[rysettingid:entity.objid,lguid:var.lgu_objid, lguname:var.lgu_name, settingtype:SETTING_TYPE]]
+        }
+        entity.appliedto = entity.lgus.lguname.join(', ')
+    }
+
+
+    void loadInitialAssessesLevels(entity){
+        getPropertyClassifications().each{
+            saveAssessLevel([
+                objid               : it.objid,
+                landrysettingid     : entity.objid,
+                classification_objid: it.objid,
+                classification      : it,
+                code                : it.code,
+                name                : it.name, 
+                fixrate             : true,
+                rate                : 0.0
+            ])
+        }
+    }
+
+
+    void copyLandAdjustments( newsettinTypegid, oldsettingid ) {
+        def landadjustments = getLandAdjustments( oldsettingid )
+        landadjustments.each {
+            it.previd = it.objid
+            it.objid = util.generateId('LA')
+            it.landrysettingid = newsettingid
+            saveLandAdjustmentType( it )
+        }
+    }
+    
+    void copyLcuvs( newsettingid, oldsettingid ) {
+        getPropertyClassifications().each{ pc ->
+            def specificclasses = getSpecificClasses( oldsettingid, pc.objid )
+            specificclasses.each { sc ->
+                sc.previd = sc.objid
+                sc.objid = util.generateId('SC')
+                sc.landrysettingid = newsettingid 
+                saveSpecificClass( sc )
+                
+                def subclasses = getSubClasses( sc.previd )
+                subclasses.each { sbc ->
+                    sbc.previd = sbc.objid
+                    sbc.objid = util.generateId('SB')
+                    sbc.specificclass_objid = sc.objid
+                    sbc.landrysettingid = newsettingid 
+                    saveSubClass( sbc )
+                }
+            }
+            
+            def strippings = getStrippings( oldsettingid, pc.objid )
+            strippings.each { st ->
+                st.previd = st.objid
+                st.objid = util.generateId('ST')
+                st.landrysettingid = newsettingid 
+                saveStripping( st )
+            }
+        }
+    }
+    
+    void copyAssessLevels( newsettingid, oldsettingid ) {
+        def assesslevels = getAssessLevels( oldsettingid )
+        assesslevels.each { al ->
+            al.previd = al.objid 
+            al.objid = util.generateId('AL')
+            al.landrysettingid = newsettingid
+            saveAssessLevel( al )
+
+            getRanges(al.previd).each{ range ->
+                range.previd = range.objid 
+                range.objid = util.generateId('RA')
+                range.landassesslevelid = al.objid 
+                range.landrysettingid = newsettingid
+                saveRange( range )
+            }
+        }
+    }
+
+    void copyLandAdjustmentTypes( newsettingid, oldsettingid ) {
+        def landadjustments = getLandAdjustmentTypes( oldsettingid );
+        landadjustments.each { la ->
+            la.previd = la.objid;
+            la.objid =  util.generateId('LA') 
+            la.landrysettingid = newsettingid
+            saveLandAdjustmentType( la );
+
+            def adjclassifications = getAdjustmentClassifications([objid:la.previd])
+            adjclassifications.each{ac ->
+                ac.objid = la.objid 
+                ac.landrysettingid = newsettingid
+                insertLandAdjustmentTypeClassification(ac, ac.classification)
+            }
+        }
+
+    }
+
+
+    void checkApproved( entity ){
+        def old = open(entity)
+        if (old.state == STATE_APPROVED)
+        throw new Exception('Setting has already been approved.')
+    }
+
+}

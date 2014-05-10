@@ -1,0 +1,139 @@
+import com.rameses.common.*
+import com.rameses.annotations.*
+import com.rameses.util.*
+
+class RPTAssessmentNoticeService 
+{
+	@PersistenceContext('rpt')
+	def em 
+	
+	@Service('SequenceService')
+	def seqSvc
+	
+	@Service('DateService')
+	def dateSvc
+
+	@Service('RPTUtil')
+	def util 
+
+	@Service('Var')
+	def var 
+
+	@Service('ReportParameterService')
+	def reportSvc
+
+	@Env
+	def env
+	
+	def SCHEMA_NAME = 'assessmentnotice'
+	def SCHEMA_ITEM = 'assessmentnotice:item'
+	
+	def STATE_OPEN 		= 'OPEN' 
+	def STATE_RECEIVED 	= 'RECEIVED' 
+
+	
+	@ProxyMethod
+    public def getList( params ) {
+    	params.searchtext = (params.searchtext ? params.searchtext : '') + '%'
+        def filters = [
+            ' and txnno LIKE $P{searchtext}',
+            ' and taxpayername LIKE $P{searchtext}',
+            ' and receivedby LIKE $P{searchtext}',
+        ]
+        return util.getListFromQuery( 'assessmentnotice:getList' , filters, params, 'objid' )
+    }
+
+
+	@ProxyMethod
+	public Map createNotice( notice ) {
+		if (!notice.items)
+			throw new Exception('At least one property must be included.');
+
+		def cy = dateSvc.serverYear 
+		notice.state  = STATE_OPEN
+		notice.txnno  = var.lgu_objid + '-' + seqSvc.getNextFormattedSeries('ASSESSMENT_NOTICE-' + cy)
+		notice.txndate  = dateSvc.serverDate
+		notice.taxpayerid = notice.taxpayer.objid
+		notice.taxpayername = notice.taxpayer.name
+		notice.taxpayeraddress = notice.taxpayer.address
+		notice.assessmentyear = dateSvc.serverYear 
+		
+		notice.createdbyid =  (env.USERID ? env.USERID : 'SYSTEM')
+		notice.createdbyname =  (env.FULLNAME ? env.FULLNAME : 'SYSTEM')
+		notice.createdbytitle =  (env.JOBTITLE ? env.JOBTITLE : 'SYSTEM')
+
+		notice.approvedbyname = ( var.assessor_name ? var.assessor_name : reportSvc.standardParameter.ASSESSORNAME)
+		notice.approvedbytitle = ( var.assessor_title ? var.assessor_title : reportSvc.standardParameter.ASSESSORTITLE)
+
+		em.validate(SCHEMA_NAME, notice )
+		em.create(SCHEMA_NAME,  notice) 
+
+		notice.items.each{
+			it.objid = util.generateId('ANI')
+			it.assessmentnoticeid = notice.objid 
+			em.validate(SCHEMA_ITEM, it)
+			em.create(SCHEMA_ITEM, it)
+		}
+		return notice 
+	}
+
+
+	@ProxyMethod
+	public def openNotice( objid ) {
+		def notice = em.read(SCHEMA_NAME, [objid:objid])
+		notice.items = em.sqlContext.createNamedQuery('assessmentnotice:getItems')
+							.setParameter('assessmentnoticeid', notice.objid)
+							.resultList 
+		notice.dtassessed = dateSvc.getServerYear()+""
+		if( notice.items && notice.items[0].dtsigned )	notice.dtassessed = new java.text.SimpleDateFormat("yyyy").format(notice.items[0].dtsigned)
+		return notice
+	}
+
+	@ProxyMethod
+	public def receiveNotice(notice) {
+		def old = openNotice(notice.objid)
+		if (old.state == STATE_RECEIVED)
+			throw new Exception('Notice has already been received.')
+
+		util.required('Received By', notice.receivedby)
+		util.required('Date Delivered', notice.dtdelivered)
+
+		notice.dtdelivered = dateSvc.parse('yyyy-MM-dd', notice.dtdelivered)
+		if (dateSvc.add(notice.dtdelivered, '1d') < notice.txndate)
+			throw new Exception('Date Delivered must be greater than or equal to ' + dateSvc.format('yyyy-MM-dd', notice.txndate) + '.')
+
+		notice.state = STATE_RECEIVED
+		em.update(SCHEMA_NAME, notice)
+		return notice;
+	}
+
+	@ProxyMethod
+	public def getApprovedFaasList(taxpayerid){
+		return em.sqlContext.createNamedQuery('assessmentnotice:getApprovedFaasList')
+							.setParameter('taxpayerid', taxpayerid)
+							.resultList 
+	}
+
+	@ProxyMethod
+	public def getFaasById( faasid ) {
+		return em.sqlContext.createNamedQuery('assessmentnotice:getFaasById')
+							.setParameter('faasid', faasid)
+							.singleResult
+	}
+
+	@ProxyMethod 
+	public def getTaxpayerList(params) {
+		return em.sqlContext.createNamedQuery('assessmentnotice:getTaxpayerList')
+							.setParameters(params)
+							.resultList 
+
+	} 
+
+	@ProxyMethod 
+	public def getTaxpayerPropertyListForBatch(params) {
+		return em.sqlContext.createNamedQuery('assessmentnotice:getTaxpayerPropertyListForBatch')
+							.setParameters(params)
+							.resultList 
+	}
+ 
+}

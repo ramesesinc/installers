@@ -1,0 +1,5 @@
+dialect=mysql
+driverClass=com.mysql.jdbc.Driver
+url=jdbc:mysql://@imagedbhost/mysql
+user=@imagedbuser
+pwd=@imagedbpwd

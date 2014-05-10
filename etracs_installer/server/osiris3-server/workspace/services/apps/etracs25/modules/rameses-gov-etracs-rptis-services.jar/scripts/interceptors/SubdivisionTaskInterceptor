@@ -1,0 +1,100 @@
+import com.rameses.annotations.*
+import com.rameses.eserver.*;
+import com.rameses.common.*;
+
+class SubdivisionTaskInterceptor
+{
+	@Service('SubdivisionService')
+	def svc 
+
+	@Service('RPTTaskService')
+	def taskSvc
+
+	@Service('RPTTrackingService')
+    def trackingSvc
+
+    @Service('RPTWorkflowService')
+    def workflowSvc 
+
+    @Service(value="GroupNotificationService", connection="notification_proxy")
+    def notificationSvc
+
+
+	@Env
+	def env 
+
+
+	@Before(pattern="SubdivisionService.deleteSubdivision") 
+	public void deleteSubdivision( evt ) {
+		def entity = evt.args[0]
+		taskSvc.delete(entity)
+	}
+
+
+	def createTask(entity, wf){
+		return [
+			objid		: entity.objid,
+			refno		: entity.txnno,
+			docname 	: 'Subdivision',
+			filetype	: 'subdivision',
+			action 		: wf.tostate,
+			status		: wf.message,
+			signatory 	: wf.signatory,
+			workflowid  : wf.workflowid,
+		]
+	}
+
+
+	@After(pattern="SubdivisionService.createSubdivision") 
+	public void initTransaction( evt ) {
+		def subdivision = evt.result
+		def startwf = workflowSvc.findStart([docname:'Subdivision', appliedto:'SD', fromstate:null])
+		def task = createTask(subdivision, startwf)
+		task = taskSvc.createTask(task)
+		taskSvc.assignTask(task)
+		updateSignatoryFromTask(subdivision, task)
+	}
+
+
+	@After(pattern="SubdivisionService.approveSubdivisionAsync") 
+	public void approveSubdivisionAsync( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+	}
+
+	@After(pattern="SubdivisionService.approveSubdivision") 
+	public void approveSubdivision( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+		trackingSvc.updateMessage([objid:evt.result.objid, msg:'Subdivision is already approved.'])
+	}
+
+	@After(pattern="SubdivisionService.disapproveSubdivision") 
+	public void disapproveSubdivision( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+	}
+
+
+	@After(pattern="RPTTaskService.(createNextUserTask|assignTaskToMe)", eval="#{result.filetype == 'subdivision'}") 
+	public void updateSignatoryInfo( evt ) {
+		def task = evt.result 
+		def subdivision = svc.openSubdivision(task.objid)
+		updateSignatoryFromTask(subdivision, task)
+		try{
+			notificationSvc?.removeMessage([objid:subdivision.objid])
+		}
+		catch(e){
+			println 'Notification Error ==================================================='
+			println e.message
+		}
+	}
+
+	void updateSignatoryFromTask(subdivision, task){
+		if (! subdivision[task.signatory]) 
+			subdivision[task.signatory] = [:]
+
+		subdivision[task.signatory].dtsigned = task.startdate 
+		subdivision[task.signatory].name = task.assignedto.name 
+		subdivision[task.signatory].title = task.assignedto.title
+		svc.updateSubdivision(subdivision) 
+	}	
+}
+

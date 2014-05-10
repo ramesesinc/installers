@@ -1,0 +1,22 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+
+class CloudNotificationMessageInterceptor
+{
+	@Service('GroupNotificationService')
+	def service;
+
+	@Before(pattern="CloudNotificationClientService.receiveMessage") 
+	public void receiveMessage( evt ) {
+		def newdata = evt.args[0]; 
+		def olddata = service.getMessage( [objid: newdata.objid] ); 
+		if (!olddata) service.addMessage( newdata ); 
+
+		/*
+		if (newdata.data) {
+			char[] chars = newdata.data.toString().toCharArray();
+			byte[] bytes = new Base64CoderImpl().decode(chars);
+			newdata.data = new com.rameses.io.IOStream().readObject(bytes); 
+		}*/
+	} 
+} 

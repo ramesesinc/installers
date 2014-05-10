@@ -1,0 +1,10 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+
+class TestService 
+{	
+	@ProxyMethod
+	public void ping() {
+		println 'invoking ping...';
+	}
+}

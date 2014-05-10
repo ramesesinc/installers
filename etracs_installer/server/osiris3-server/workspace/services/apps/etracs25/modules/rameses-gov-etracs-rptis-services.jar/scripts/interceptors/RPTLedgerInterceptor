@@ -1,0 +1,117 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+
+class RPTLedgerInterceptor
+{
+	@Service('RPTLedgerService')
+	def svc
+
+	@Service('RPTUtil')
+	def util 
+
+	def STATE_PENDING   = 'PENDING'
+	def STATE_APPROVED  = 'APPROVED'
+
+
+	@After(pattern="FAASService.approveFaas.*")
+	public void postFaasToRPTLedger(evt){
+        def faas = evt.result 
+        if (faas.txntype.objid.matches('SD|CS') && faas.rpu.rputype == 'land'){
+            postNewLedger(faas)
+        }
+        else if (faas.txntype.objid.matches('SD|CS') && faas.rpu.rputype != 'land'){
+            postLedgerItems(faas);
+        }
+		else if ( faas.txntype.newledger || util.isTrue(faas.datacapture)) {
+            postNewLedger(faas);
+        }
+        else {
+        	postLedgerItems(faas);
+        }		
+	}
+
+    void postLedgerItems(faas){
+        def ledger = svc.getLedgerByFaasId(faas.previousfaases[0].prevfaasid)
+        if (!ledger) throw new Exception('Ledger not found for TD No. ' + faas.tdno + '.')
+        ledger.faasid = faas.objid 
+        svc.updateLedger(ledger)
+        def ledgerfaas = createLedgerFaas(ledger, faas)
+        svc.postLedgerFaas(ledgerfaas) 
+    }
+
+    void postNewLedger(faas){
+        def ledger = createLedger(faas)
+        svc.createLedger(ledger)
+        if (! util.isTrue(faas.datacapture)){
+            svc.approveLedger(ledger)
+        }
+    }
+
+
+	def createLedger(faas){
+		def ledger = [
+            objid           : faas.objid,
+            state           : STATE_PENDING,
+            faasid          : faas.objid,
+            basic           : 0.0,
+            basicint        : 0.0,
+            basicdisc       : 0.0,
+            basiccredit     : 0.0,
+            sef             : 0.0,
+            sefint          : 0.0,
+            sefdisc         : 0.0,
+            sefcredit       : 0.0,
+            nextbilldate    : null, 
+            lastyearpaid    : 0,
+            lastqtrpaid     : 0,
+            firstqtrpaidontime      : false,
+            qtrlypaymentavailed     : false,
+            qtrlypaymentpaidontime  : false,
+            lastitemyear          : 0,
+            faases : [],
+            barangayid      : faas.rp.barangay.objid
+        ]
+		ledger.faases << createLedgerFaas( ledger, faas )
+		def lastfaas = ledger.faases.last() 
+        faas.backtaxes?.each{ backtax ->
+            backtax.txntype         = faas.txntype 
+            backtax.rpu             = faas.rpu 
+            backtax.backtaxyrs      = faas.backtaxyrs
+            backtax.taxable         = util.toBoolean(backtax.taxable, true)
+            def ledgerfaas 			= createLedgerFaas(ledger, backtax)
+            ledgerfaas.faasid 		= backtax.faasid 
+            ledgerfaas.assessedvalue = backtax.av 
+            ledgerfaas.backtax      = true 
+            ledgerfaas.toyear 		= (lastfaas.fromqtr == 1 ? lastfaas.fromyear - 1 : lastfaas.fromyear)
+            ledgerfaas.toqtr 		= (lastfaas.fromqtr == 1 ? 4 : lastfaas.fromqtr - 1)
+            ledger.faases << ledgerfaas 
+            lastfaas = ledgerfaas
+        }
+        
+        return ledger 
+	}
+
+	def createLedgerFaas(ledger, faas){
+        return [
+            objid       			: faas.objid,
+            state       			: ledger.state,
+            rptledgerid 			: ledger.objid,
+            faasid      			: faas.objid, 
+            tdno        			: faas.tdno,
+            txntype_objid           : faas.txntype.objid,
+            classification_objid    : faas.rpu.classification.objid,
+            actualuse_objid         : faas.rpu.classification.objid,
+            taxable                 : util.toBoolean(faas.rpu.taxable, true),
+            backtax                 : (faas.backtaxyrs > 0 ),
+            fromyear                : faas.effectivityyear,
+            fromqtr                 : faas.effectivityqtr,
+            toyear                  : 0,
+            toqtr                   : 0,
+            assessedvalue           : faas.rpu.totalav,
+            systemcreated           : true,
+            reclassed               : util.toBoolean(faas.rpu.reclassed, false),
+        ]
+	}
+	
+}
+

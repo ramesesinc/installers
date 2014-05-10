@@ -1,0 +1,23 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+
+
+class XXTestService
+{
+	@ActiveDB(value='xxtest', em="image")
+	def em 
+
+
+	@ProxyMethod
+	public def save( data ) {
+		em.insert(data);
+	}
+
+
+	@ProxyMethod
+	public def getImageFiles( param ) {
+		return em.getImageFiles(param)
+	}
+}
+

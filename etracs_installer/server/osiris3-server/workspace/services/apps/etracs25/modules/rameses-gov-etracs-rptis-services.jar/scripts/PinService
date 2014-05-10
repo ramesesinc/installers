@@ -1,0 +1,118 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*;
+
+class PinService
+{
+	@PersistenceContext('rpt')
+	def em
+
+	@Service('Var')
+	def var 
+
+	@Service('RPTUtil')
+	def utilSvc
+
+	@Service('LGUService')
+	def lguSvc 
+
+	def STATE_INTERIM       = 'INTERIM  '
+    
+	@ProxyMethod
+	public def initPin(barangay){
+		return [
+			objid  		: 'PIN' + new java.rmi.server.UID(),
+			state  		: STATE_INTERIM,
+			barangayid	: barangay.objid,
+		]
+	}
+
+
+	@ProxyMethod
+	public def createPin( pin ) {
+		pin.state = STATE_INTERIM
+		em.sqlContext.createNamedExecutor('pin:insertPin').setParameters(pin).execute()
+	}
+
+
+	@ProxyMethod
+	public def deletePin( pin ) {
+		try{
+			em.sqlContext.createNamedExecutor('pin:deletePin').setParameters(pin).execute()
+		}
+		catch(e){
+			//ignore : possible multiple references due to revision
+		}
+	}
+
+
+	@ProxyMethod
+	public def updateState( pin ) {
+		em.sqlContext.createNamedExecutor('pin:updateState').setParameters(pin).execute()
+	}
+
+
+
+
+
+	/*=======================================================
+	** During general revision, the PIN might be renumbered, 
+	** that is, implementing the zero pin/arpno guideline.
+	** To accommodate both cases either retaining or renumbering
+	** the PIN, the variable gr_renumber_pin option must be added
+	** to sys_var. 
+	**
+	** The gr_convert_pin_old_to_new variable also controls whether
+	** the PIN is converted from old format to new format.
+	** 
+	** Pin Sequence Key : RY + BRGYID + 
+	**=======================================================*/
+	@ProxyMethod
+	public void renumberPin( rpu ){
+		def rp = rpu.rp 
+		
+		def renumberpin = utilSvc.toBoolean( var.gr_renumber_pin, false )
+		if (renumberpin == false ) return 
+		
+		def convertpintonew = utilSvc.toBoolean( var.gr_convert_pin_old_to_new, false )
+		
+		//get next parcelno
+		def brgy = lguSvc.lookupBarangayById(rp.barangayid)
+
+		def brgyindex 	= brgy.indexno
+		if( convertpintonew && brgyindex.length() < 4 ) {
+			brgyindex = brgyindex.padLeft(4, '0')
+		}
+		
+		def seq_key 	= rp.ry + '-' + rp.barangayid + '-' + rp.section 
+
+		def section_len = 2
+		def parcel_len 	= utilSvc.toInteger2(var.pin_parcel_length,3)
+		if( convertpintonew ) {
+			section_len = 3 
+			parcel_len = 2 
+		}
+		
+		def max_parcel_count 	= ( parcel_len == 2 ? 99 : 999 )
+		def parcelno 			= seqSvc.getNextFormattedSeriesA( seq_key, parcel_len )
+		
+		if( utilSvc.toInteger(parcelno, 0) > max_parcel_count ) {
+			throw new Exception('No. of Parcels is more than the allowed count for this setting.')
+		}
+		
+		//update pin based on new parcelno 
+		def muni = lguSvc.lookupMunicipalityById(brgy.parentid)
+		def district = lguSvc.lookupDistrictById(brgy.parentid)
+		def prov = lguSvc.lookupProvinceById(muni?.parentid)
+		def city = lguSvc.lookupCityById(district?.parentid)
+
+		def newbrgypin		= (prov ? prov.indexno : city.indexno) + '-' + (muni ? muni.indexno : district.indexno) + '-' + brgyindex
+		def section 		=  rp.section.toString().padLeft(section_len, '0')
+		rp.parcel 			= parcelno 
+		rp.section 			= section 
+		rp.barangayindex 	= brgyindex 
+		rp.pin 				= newbrgypin + '-' + section + '-' + rp.parcel 
+		rpu.fullpin 		= rp.pin 
+	}
+	
+
+}

@@ -1,0 +1,113 @@
+package rptbilling;
+
+
+
+declare PaymentOptionFact
+    type  : String
+end 
+
+declare RPTLedgerFact
+    objid                   : String
+    lastyearpaid            : Integer
+    lastqtrpaid             : Integer
+    firstqtrpaidontime      : Boolean
+    qtrlypaymentpaidontime  : Boolean
+    barangayid              : String
+    barangay                : String
+    rputype                 : String
+end
+
+
+declare RPTLedgerItemFact
+    objid                   : String
+    rptledger               : RPTLedgerFact
+    year                    : Integer
+    qtr                     : Integer 
+    firstitem               : Boolean
+    originalav              : Double
+    av                      : Double
+    txntype                 : String 
+    classification          : String
+    actualuse               : String
+    numberofmonthsfromqtr   : Integer
+    numberofmonthsfromjan   : Integer
+    backtax                 : Boolean 
+    expr                    : String 
+    paidyear                : Integer
+    revperiod                 : String
+    reclassed               :Boolean
+    basic                   : Double
+    basicint                : Double
+    basicdisc               : Double
+    basicnet               : Double
+    sef                     : Double
+    sefint                  : Double
+    sefdisc                 : Double
+    sefnet                 : Double
+    totalbasicsef           : Double
+    firecode                : Double
+    total                   : Double
+    idx                     : Integer
+end
+
+
+declare AssessedValueFact
+    rptledgerid   : String
+    year          : Integer
+    assessedvalue : Double 
+    qtrlyav       : Double 
+end
+
+
+declare PartialPaymentMade
+    rptledger    : RPTLedgerFact
+    partialbasic     : Double
+    partialbasicint  : Double
+    partialbasicdisc : Double
+    partialsef       : Double
+    partialsefint    : Double
+    partialsefdisc   : Double
+    partialledyear   : Integer
+    partialledqtr    : Integer
+end
+
+declare RPTLedgerTaxSummaryFact
+    objid           : String 
+    rptledger       : RPTLedgerFact
+    revperiod       : String 
+    basic           : Double
+    basicint        : Double
+    basicdisc       : Double
+    sef             : Double
+    sefint          : Double
+    sefdisc         : Double
+    firecode        : Double
+end
+
+declare ShareInfoFact
+    rptledger       : RPTLedgerFact
+    lgutype         : String 
+    sharetype        : String
+    revperiod       : String 
+    barangayid       : String
+    basic           : Double
+    basicint        : Double
+    basicdisc       : Double
+    sef             : Double
+    sefint          : Double
+    sefdisc         : Double
+end
+
+declare RPTIncentive
+    rptledger  : RPTLedgerFact
+    basicrate   : Double
+    sefrate     : Double 
+    fromyear    : Integer
+    toyear      : Integer 
+end
+
+declare PartialPayment
+    rptledger  : RPTLedgerFact
+    amount      : Double 
+    idx         : Integer 
+end

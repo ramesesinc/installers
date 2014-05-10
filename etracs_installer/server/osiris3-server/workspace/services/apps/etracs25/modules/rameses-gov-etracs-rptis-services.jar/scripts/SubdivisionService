@@ -1,0 +1,602 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+import com.rameses.util.*
+
+
+class SubdivisionService
+{
+	@ActiveDB('subdivision')
+	def em
+
+    @ActiveDB('subdivision')
+    def adb 
+    
+	@Env
+	def env
+	
+
+    @Service('LGUService')
+    def lguSvc 
+
+    @Service('RPUService')
+    def rpuSvc
+
+    @Service('RealPropertyService')
+    def rpSvc 
+
+	@Service('FAASService')
+	def faasSvc 
+
+	@Service('SequenceService')
+	def seqSvc
+    
+    @Service('TxnRefService')
+    def txnRef
+
+    @Service('WorkflowStateService')
+    def workflowRef 
+	
+	@Service('RPTUtil')
+	def util
+
+    @Service('DateService')
+    def dtSvc
+
+    @Service('Var')
+    def var 
+
+    @Service('RPTLedgerService')
+    def ledgerSvc 
+
+
+    @Service('NumberService')
+    def numSvc
+
+    @Service('TxnSignatoryService')
+    def signatorySvc 
+
+
+    @Service('RPTTrackingService')
+    def trackingSvc    
+
+
+	def SCHEMA_SUBDIVISION 		= 'subdivision'
+	def SCHEMA_SUBDIVIDED_LAND 	= 'subdividedland'
+	def SCHEMA_AFFECTED_RPU 	= 'affectedrpu'
+
+    def STATE_DRAFT             = 'DRAFT'
+    def STATE_APPROVED          = 'APPROVED'
+	def STATE_PENDING 			= 'PENDING'
+
+    def TXNTYPE_SD = 'SD'
+
+    def signatories = ['receiver','taxmapper', 'taxmapping_chief', 'examiner', 'appraiser', 'appraisal_chief', 'recommender', 'assistant_assessor', 'approver']
+
+    @ProxyMethod
+    public def createSubdivision(info) {
+        def pdate = dtSvc.parseCurrentDate()
+        
+        def subdivision  = [:]
+        subdivision.putAll(info)
+        subdivision.state = STATE_DRAFT
+        subdivision.txnno = seqSvc.getNextFormattedSeries('SUBDIVISION')
+        subdivision.txndate = pdate.date 
+        subdivision.txntype = faasSvc.getTxnType(TXNTYPE_SD)
+        subdivision.ry = util.toInteger(var.current_ry)
+        subdivision.lguid = var.lgu_objid
+        subdivision.autonumber = util.toBoolean(var.td_autonumber, false)
+        subdivision.effectivityyear = pdate.year + 1
+        subdivision.effectivityqtr  = 1
+        subdivision.motherfaasid    = info.motherfaas.objid
+        signatorySvc.init(subdivision, signatories)
+        signatorySvc.buildSignatories(subdivision, signatories)
+    	em.create(subdivision)
+    	txnRef.insertRef(subdivision.motherfaasid, subdivision.objid, 'FAAS is currently referenced by Subdivision No. ' + subdivision.txnno +'.')
+    	workflowRef.insert(subdivision)
+        createAffectedRpus(subdivision)
+        trackingSvc.assignTrackingNo(subdivision, 'subdivision', 'Document is currently reviewed.')
+    	return openSubdivision(subdivision.objid)
+    }
+
+
+    @ProxyMethod
+    public def updateSubdivision(subdivision) {
+        signatorySvc.buildSignatories(subdivision, signatories)
+    	em.update(subdivision)
+    	return subdivision
+    }
+
+
+    @ProxyMethod
+    public def openSubdivision( objid ) {
+        def subdivision = em.findSubdivisionById([objid:objid])
+        subdivision.txntype = faasSvc.getTxnType(TXNTYPE_SD)
+        subdivision.autonumber = util.toBoolean(subdivision.autonumber, false)
+        subdivision.motherfaas.barangay = lguSvc.lookupBarangayById(subdivision.motherfaas.barangayid)
+        signatorySvc.loadSignatories('subdivision', subdivision)
+        createAffectedRpus(subdivision);
+        return subdivision 
+    }
+ 
+ 	@ProxyMethod
+ 	public def deleteSubdivision( subdivision ) {
+ 		getAffectedRpus(subdivision.objid).each{arpu ->
+            em.delete(arpu, SCHEMA_AFFECTED_RPU)
+            faasSvc.deleteFaasById(arpu.newfaasid)
+            def rpu = rpuSvc.findRpuInfoById(arpu.newrpuid)
+            if (rpu ) rpuSvc.deleteRpu(rpu)
+        }
+
+        getSubdividedLands(subdivision.objid).each{ sl ->
+            faasSvc.deleteFaasById(sl.newfaasid)
+            deleteSubdividedLand(sl)
+ 		}
+        
+        workflowRef.deleteAll(subdivision.objid)
+        txnRef.delete(subdivision.objid)
+        signatorySvc.deleteSignatories(subdivision)
+        em.delete(subdivision)
+ 	}
+
+
+    @ProxyMethod
+    public def initSubdividedLand( subdivision ) {
+        return [
+            objid          : util.generateId('SL'),
+            subdivisionid  : subdivision.objid,
+            memoranda      : subdivision.memoranda, 
+            newrpid        : null, 
+            newrpuid       : null,
+            newfaasid      : null,
+            areasqm        : 0.0,
+            areaha         : 0.0,
+        ]    
+    }
+
+
+    @ProxyMethod
+    public def createSubdividedLand( sland ) {
+        sland.newutdno = faasSvc.generateUniqueTdNo(sland)
+        em.save(sland, SCHEMA_SUBDIVIDED_LAND)
+        return sland 
+    }
+
+
+    @ProxyMethod
+    public def updateSubdividedLand( sland ) {
+        em.save(sland, SCHEMA_SUBDIVIDED_LAND)
+        return sland 
+    }
+
+
+    @ProxyMethod
+    public def openSubdividedLand( objid ) {
+        def sland = em.read([objid:objid])    
+        sland.rpu = rpuSvc.openRpu([objid:sland.newrpuid])
+        sland.rp = rpSvc.open([objid:slan])
+        return sland 
+    }
+
+
+ 	@ProxyMethod
+ 	public def deleteSubdividedLand(sland){
+        em.clearAffectedNewRpuRealPropertyId(sland)
+        em.clearAffectedRpuNewRealPropertyInfo(sland)
+ 		em.delete(sland, SCHEMA_SUBDIVIDED_LAND)
+        if (sland.newrpuid){
+            def rpu = rpuSvc.openRpu([objid:sland.newrpuid])
+            if (rpu ) rpuSvc.deleteRpu(rpu)
+        }
+        rpSvc.removeEntity(sland.rp)
+ 	}
+
+
+    @ProxyMethod
+    public def getSubdividedLands( subdivisionid ) {
+        return em.getSubdividedLands([subdivisionid:subdivisionid])
+    }
+
+
+    @ProxyMethod
+    public def saveAffectedRpu( arpu ) {
+        em.save(arpu, SCHEMA_AFFECTED_RPU)  
+        updateAffectedRpuRealPropertyId(arpu)
+        return arpu 
+    }
+
+
+    @ProxyMethod
+    public def openAffectedRpu( objid ) {
+        def arpu = em.read([objid:objid], SCHEMA_AFFECTED_RPU)    
+        arpu.rpu = rpuSvc.openRpu([objid:arpu.newrpuid])
+        arpu.rp = rpSvc.open([objid:arpu.newrpid])
+        return arpu 
+    }
+
+
+    @ProxyMethod
+    public def deleteAffectedRpuByPrevFaasId( prevfaasid ) {
+        em.deleteAffectedRpuByPrevFaasId([prevfaasid:prevfaasid])
+    }
+
+
+    @ProxyMethod
+    public List getAffectedRpus(subdivisionid){
+        return em.getAffectedRpus([subdivisionid:subdivisionid])
+    }
+
+
+
+    @ProxyMethod
+    public def buildPin(rp) {
+        def info = [
+            pintype     : rp.pintype, 
+            barangay    : rp.barangay, 
+            section     : rp.section, 
+            parcel      : rp.parcel
+        ]
+        rpSvc.buildPin(rp, info)
+        rpSvc.checkDuplicatePin([objid:rp.objid, ry:rp.ry, pin:rp.pin])
+        return rp 
+    }
+
+ 	/*------------------------------------------------------------------------
+ 	*
+ 	* WORKFLOW SUPPORT
+ 	*
+ 	------------------------------------------------------------------------*/
+    @ProxyMethod
+    public def validateSubmit( subdivision ) {
+        return subdivision
+    }
+
+    @ProxyMethod
+    public def disapproveSubdivision(subdivision) {
+        workflowRef.delete(subdivision)
+    	subdivision.state = STATE_DRAFT
+    	updateSubdivision(subdivision)
+    	deleteFaasRecords(subdivision)
+    	return subdivision
+    }
+
+
+    @ProxyMethod
+    public def approveSubdivision(subdivision) {
+    	subdivision.state = STATE_APPROVED
+    	workflowRef.insert(subdivision)
+        validate(subdivision)
+    	updateSubdivision(subdivision)
+        createFaasRecords(subdivision)
+    	doApproveSubdivision(subdivision)
+    	return subdivision 
+    }
+
+
+    /*------------------------------------------------------------------------
+ 	*
+ 	* HELER SUPPORT
+ 	*
+ 	------------------------------------------------------------------------*/
+
+ 	void doApproveSubdivision(subdivision){
+        em.approveSubdivision(subdivision)
+
+        getSubdividedLands(subdivision.objid).each{ sl ->
+            def faas = faasSvc.openFaas([objid:sl.newfaasid])
+            faasSvc.approveFaas(faas)
+        }
+
+        getAffectedRpus(subdivision.objid).each{ arpu ->
+            def faas = faasSvc.openFaas([objid:arpu.newfaasid])
+            faasSvc.approveFaas(faas)
+            em.updateRpuFullPin([fullpin:arpu.newpin + '-' + arpu.newsuffix, objid:arpu.newrpuid])
+        }
+
+        em.cancelRealProperty([objid:subdivision.motherfaas.realpropertyid])
+        em.cancelMotherLandLedger([faasid:subdivision.motherfaasid])
+        em.updateSubdividedLandNewTdNo([subdivisionid:subdivision.objid])
+        em.updateAffectedRpuNewTdNo([subdivisionid:subdivision.objid])
+ 	}
+
+ 	void createFaasRecords(subdivision){
+ 		getSubdividedLands(subdivision.objid).each{ land ->
+            land.rp = rpSvc.open([objid:land.newrpid])
+            land.rpu = rpuSvc.openRpu([objid:land.newrpuid])
+ 			def faas = createFaasFromSubdividedLand(subdivision, land)
+ 			faasSvc.createFaas(faas)
+ 			land.newfaasid = faas.objid 
+ 			updateSubdividedLand(land)
+ 		}
+
+ 		getAffectedRpus(subdivision.objid).each{ arpu ->
+            arpu.rp = rpSvc.open([objid:arpu.newrpid])
+ 			arpu.rpu = rpuSvc.openRpu([objid:arpu.newrpuid])
+ 			def faas = createFaasFromAffectedRpu(subdivision, arpu)
+ 			faasSvc.createFaas(faas)
+ 			arpu.newfaasid = faas.objid 
+ 			saveAffectedRpu(arpu)
+ 		}
+ 	}
+
+
+ 	void deleteFaasRecords(subdivision){
+ 		getAffectedRpus(subdivision.objid).each{ arpu ->
+            em.clearAffectedRpuNewFaasId(arpu)
+            if (arpu.newfaasid){
+                faasSvc.deleteFaas([objid:arpu.newfaasid])
+            }
+ 		}
+ 		getSubdividedLands(subdivision.objid).each{ sl ->
+            em.clearSubdividedLandNewFaasId(sl)
+            if (sl.newfaasid){
+ 			    faasSvc.deleteFaas([objid:sl.newfaasid])
+            }
+ 		}
+ 	}
+
+
+    void createAffectedRpus(subdivision){
+        def affectedrpus = em.getAffectedRpusForCreate([subdivisionid:subdivision.objid, realpropertyid:subdivision.motherfaas.realpropertyid])
+        affectedrpus.each{ arpu -> 
+            def rpu = rpuSvc.openRpu([objid:arpu.prevrpuid])
+            rpuSvc.generateNewIds(rpu)
+            rpu.ry  = subdivision.ry 
+            rpuSvc.createRpu(rpu)
+
+            arpu.memoranda  = subdivision.memoranda
+            arpu.newutdno   = faasSvc.generateUniqueTdNo(arpu)
+            arpu.newrpuid   = rpu.objid
+            saveAffectedRpu(arpu)
+
+            txnRef.insertRef(arpu.prevfaasid, subdivision.objid, "FAAS is currently referenced by Subdivision No. $subdivision.txnno.")
+        }
+    }
+
+
+    void validate(subdivision){
+        validateSubdividedLands(subdivision)
+        validateAffectedRpus(subdivision)
+    }
+
+    void validateArea(subdivision, subdividedlands){
+        if (util.isTrue(var.subdivision_allow_equal_area_only)) {
+            def totalarea = util.sum(subdividedlands, 'areasqm')
+            if (subdivision.motherfaas.totalareasqm != totalarea){
+                def ssqm = numSvc.format('#,##0.00', subdivision.motherfaas.totalareasqm )
+                def sha = numSvc.format('#,##0.000000', subdivision.motherfaas.totalareaha)
+                throw new Exception("Total Subdivided Land Area must be equal to $ssqm sq.m. or $sha ha.")
+            }
+        }
+    }
+
+
+    void validateSubdividedLands(subdivision){
+        def lands = getSubdividedLands(subdivision.objid)
+        if (lands.size() <= 1 ){
+            throw new Exception('At least 2 Subdivided Lands are required.')
+        }
+        lands.each{
+            validateSubdividedLand(it)
+        }
+        validateArea(subdivision, lands)
+    }
+
+    void validateSubdividedLand(sland){
+        //check if assessed
+        if (! sland.newrpuid )
+            throw new Exception('Subdivided Land ' + sland.newpin + ' requires assessment.');
+
+        checkDuplicateTdNo(sland.newfaasid, sland.newtdno)
+
+        if (sland.areasqm <= 0.0)
+            throw new Exception('Area for Subdivided Land ' + sland.newpin + ' must be greater than zero.')
+
+        util.required('Memoranda', sland.memoranda)
+    }
+
+
+    void validateAffectedRpus(subdivision){
+        def affectedrpus = getAffectedRpus(subdivision.objid)
+        affectedrpus.each{
+            if (it.newsuffix == null)
+                throw new Exception('Affected RPU ' + it.prevtdno + ' New Suffix is required.')
+
+            if (it.subdividedlandid == null)
+                throw new Exception('Affected RPU ' + it.prevtdno + ' New Land Reference is required.')
+
+            if (it.memoranda == null)
+                throw new Exception('Affected RPU ' + it.prevtdno + ' Memoranda is required.')                
+
+            checkCurrentState(it)
+            checkDuplicateTdNo(it.newfaasid, it.newtdno)
+        }
+    }
+
+
+    void checkCurrentState(arpu){
+        if (arpu.prevstate == 'CANCELLED')
+                throw new Exception('Affected RPU ' + arpu.prevtdno + ' has already been cancelled.')
+        if (arpu.prevstate != 'CURRENT')                
+            throw new Exception('Affected RPU ' + arpu.prevtdno + ' is not yet current.')
+    }
+
+
+    void checkApprovedLedger(arpu){
+        def ledger = ledgerSvc.getLedgerByFaasId(arpu.prevfaasid)
+        if (!ledger)
+            throw new Exception('Affected RPU ' + arpu.prevtdno + ' does not exist or has been deleted. Ask for administrator assistance.')
+        if (ledger.state == 'CANCELLED')
+            throw new Exception('Associated Ledger for TD No. ' + arpu.prevtdno + ' has already been cancelled.')
+        if (ledger.state == 'PENDING')
+            throw new Exception('Associated Ledger for TD No. ' + arpu.prevtdno + ' is not yet approved.')
+    }
+
+
+    void checkDuplicateTdNo(faasid, tdno){
+        if (tdno){
+            faasSvc.checkDuplicateTdNo(faasid, tdno)
+        }
+    }
+
+
+    def createFaasFromSubdividedLand(subdivision, sl){
+        def faas = [
+            objid               : 'F' + sl.objid,
+            state               : STATE_PENDING, 
+            datacapture         : false,
+            autonumber          : util.toBoolean(var.td_autonumber, false),
+            tdno                : sl.newtdno, 
+            utdno               : sl.newutdno,
+            txntype             : faasSvc.getTxnType(TXNTYPE_SD),
+            effectivityyear     : subdivision.effectivityyear,
+            effectivityqtr      : subdivision.effectivityqtr,
+            titletype           : sl.newtitletype,
+            titleno             : sl.newtitleno,
+            titledate           : sl.newtitledate,
+            taxpayer            : ( sl.taxpayer?.objid ? sl.taxpayer : subdivision.motherfaas.taxpayer ),
+            owner               : (sl.owner?.name ? sl.owner : subdivision.motherfaas.owner),
+            administrator       : sl.administrator,
+            memoranda           : sl.memoranda,
+            prevtdno            : subdivision.motherfaas.tdno,
+            prevpin             : subdivision.motherfaas.fullpin,
+            prevowner           : subdivision.motherfaas.owner.name,
+            prevmv              : subdivision.motherfaas.totalmv,
+            prevav              : subdivision.motherfaas.totalav,
+            appraiser           : subdivision.appraiser,
+            recommender         : subdivision.recommender,
+            taxmapper           : subdivision.taxmapper,
+            approver            : subdivision.approver,
+            lguid               : subdivision.motherfaas.lguid,
+            realpropertyid      : sl.newrpid,
+            rpuid               : sl.newrpuid,
+            rpu                 : sl.rpu, 
+            backtaxyrs          : 0,
+        ]
+
+        faas.previousfaases = [[faasid:faas.objid, prevfaasid:subdivision.motherfaasid]]
+        initFaasSignatories(faas, subdivision)
+        return faas
+    }
+
+    void initFaasSignatories(faas, subdivision){
+        signatories.eachWithIndex{ signatory, idx ->
+            faas[signatory] = subdivision[signatory]
+        }
+    }
+
+    def createFaasFromAffectedRpu(subdivision, arpu){
+        def faas = faasSvc.openFaas([objid:arpu.prevfaasid])
+
+        faas.prevtdno = faas.tdno
+        faas.prevpin =  faas.rpu.fullpin 
+        faas.prevowner =  faas.owner.name
+        faas.prevav =  faas.rpu.totalav 
+        faas.prevmv =  faas.rpu.totalmv 
+
+        faas.objid = 'F' + arpu.objid 
+        faas.state = STATE_PENDING
+        faas.txntype  = faasSvc.getTxnType(TXNTYPE_SD)
+        faas.effectivityyear = subdivision.effectivityyear
+        faas.effectivityqtr = subdivision.effectivityqtr
+        faas.tdno = arpu.newtdno
+        faas.utdno = arpu.newutdno
+        faas.memoranda = arpu.memoranda
+        faas.rpu = arpu.rpu 
+        faas.rpuid = arpu.rpu.objid 
+        faas.realpropertyid = arpu.newrpid 
+        faas.previousfaases = [[faasid:faas.objid, prevfaasid:arpu.prevfaasid]]
+        initFaasSignatories(faas, subdivision)
+        return faas 
+    }
+
+
+    void updateAffectedRpuRealPropertyId(arpu){
+        if (arpu.newrpuid && arpu.newrpid ) {
+            em.updateAffectedRpuRealPropertyId([rpuid:arpu.newrpuid, realpropertyid:arpu.newrpid])
+        }
+    }
+
+
+
+
+    /*============================================================================
+    **
+    ** ASYNCHRONOUS APPROVAL SUPPORT 
+    **
+    ============================================================================*/
+    @ProxyMethod
+    public void initApproveSubdivisionAsync(subdivision) {
+        try{
+            workflowRef.insert(subdivision)
+        }
+        catch(e){
+            // ignore repeated approval
+        }
+        validate(subdivision)
+    }
+
+    @ProxyMethod
+    public def assignNewTdNos(subdivision){
+        getSubdividedLands(subdivision.objid).each{ sl ->
+            if (sl.newtdno == null || sl.newtdno == '-'){
+                def faas = em.findFaasByNewRpuId(sl)
+                sl.newtdno = faasSvc.generateNextTdNo(faas)
+                sl.newutdno = sl.newtdno 
+                em.updateLandNewTdNo(sl)
+            }
+        }
+        getAffectedRpus(subdivision.objid).each{arpu ->
+            if (arpu.newtdno == null || arpu.newtdno == '-'){
+                def faas = em.findFaasByNewRpuId(arpu)
+                arpu.newtdno = faasSvc.generateNextTdNo(faas)
+                arpu.newutdno = arpu.newtdno 
+                em.updateAffectedNewTdNo(arpu)
+            }
+        }
+    }
+
+    @ProxyMethod
+    public void createSubdividedLandFaasRecord(subdivision, land){
+        land.rp = rpSvc.open([objid:land.newrpid])
+        land.rpu = rpuSvc.openRpu([objid:land.newrpuid])
+        def faas = createFaasFromSubdividedLand(subdivision, land)
+        faasSvc.createFaas(faas)
+        land.newfaasid = faas.objid 
+        updateSubdividedLand(land)
+
+        faas = faasSvc.openFaas(faas)
+        faasSvc.approveFaas(faas)
+    }
+
+    @ProxyMethod
+    public void createAffectedRpuFaasRecord(subdivision, arpu){
+        arpu.rp = rpSvc.open([objid:arpu.newrpid])
+        arpu.rpu = rpuSvc.openRpu([objid:arpu.newrpuid])
+        def faas = createFaasFromAffectedRpu(subdivision, arpu)
+        faasSvc.createFaas(faas)
+        arpu.newfaasid = faas.objid 
+        saveAffectedRpu(arpu)
+
+        faas = faasSvc.openFaas([objid:arpu.newfaasid])
+        faasSvc.approveFaas(faas)
+        em.updateRpuFullPin([fullpin:arpu.newpin + '-' + arpu.newsuffix, objid:arpu.newrpuid])
+    }
+
+    @ProxyMethod
+    public def approveSubdivisionAsync(subdivision){
+        em.approveSubdivision(subdivision)
+        em.cancelRealProperty([objid:subdivision.motherfaas.realpropertyid])
+        em.cancelMotherLandLedger([faasid:subdivision.motherfaasid])
+        return subdivision
+    }
+
+
+    @ProxyMethod
+    public def getFaasListing( objid ) {
+        return em.getFaasListing([objid:objid])
+    }
+
+}
+
+

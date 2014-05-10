@@ -1,0 +1,34 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+
+class BrgyTaxAccountMappingService
+{
+	@ActiveDB('brgy_taxacct_mapping')
+	def em
+
+	@ProxyMethod
+	public def getMappings(  ) {
+		def unmappedBrgys = em.getUnmappedBarangays()
+		def mappings = em.getMappings()
+		unmappedBrgys.each{
+			it.prioracct = [:]
+			it.priorintacct = [:]
+			it.prevacct = [:]
+			it.previntacct = [:]
+			it.curracct = [:]
+			it.currintacct = [:]
+			it.advacct = [:]
+			it.advintacct = [:]
+		}
+		mappings.addAll( unmappedBrgys )
+		mappings.sort{a,b -> a.indexno <=> b.indexno }
+		return mappings 
+	}
+
+	@ProxyMethod
+	public def saveMapping( mapping ) {
+		em.save(mapping)	
+		return mapping 
+	}
+}

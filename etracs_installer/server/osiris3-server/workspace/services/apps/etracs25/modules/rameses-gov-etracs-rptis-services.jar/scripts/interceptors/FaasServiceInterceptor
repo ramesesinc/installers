@@ -1,0 +1,215 @@
+import com.rameses.annotations.*
+import com.rameses.eserver.*;
+import com.rameses.common.*;
+
+class FaasServiceInterceptor
+{
+
+	@Service('RealPropertyService')
+	def rpSvc 
+
+	@Service('RPUService')
+	def rpuSvc 
+
+	@Service('RPTLedgerService')
+	def ledgerSvc
+
+	@Service('RPTUtil')
+	def util
+
+	@Service('Var')
+	def var
+
+	@Service('LogService')
+	def logSvc 
+
+	@Service('RPTRequirementService')
+	def reqSvc
+
+	@Service('ExaminationService')
+	def examinationSvc 
+
+
+	@After(pattern="FAASService.createFaas.*") 
+	public void createFaas( evt ) {
+		def faas = evt.result 
+		logSvc.log( 'create', 'FAAS', faas.objid)
+	}
+
+	@After(pattern="FAASService.updateFaas.*") 
+	public void updateFaas( evt ) {
+		def faas = evt.result 
+		logSvc.log( 'update', 'FAAS', faas.objid)
+	}
+
+	@After(pattern="FAASService.submitFaasForApproval") 
+	public void submitFaasForApproval( evt ) {
+		def faas = evt.result 
+		logSvc.log( 'submitFaasForApproval', 'FAAS', faas.objid)
+	}
+
+	@After(pattern="FAASService.approveFaas") 
+	public void approveFaas( evt ) {
+		def faas = evt.result 
+
+		util.required('Memoranda', faas.memoranda)
+		logSvc.log( 'approveFaas', 'FAAS', faas.objid)
+	}
+
+	@After(pattern="FAASService.disapproveFaas") 
+	public void disapproveFaas( evt ) {
+		def faas = evt.result 
+		logSvc.log( 'disapproveFaas', 'FAAS', faas.objid)
+	}
+
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('receive')}", index=10) 
+	public void validateReceiveInfo( evt ) {
+		def faas = evt.args[0]
+		reqSvc.checkCompliance(faas.objid)
+	}
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('forexamination')}", index=10) 
+	public void validateExaminationInfo( evt ) {
+		def faas = evt.args[0]
+		def finding = examinationSvc.findFindingById(faas.objid)
+		if (!finding)
+			throw new Exception('Examination Finding is required.')
+	}
+
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('fortaxmapping')}", index=10) 
+	public void validateTaxmappingInfo( evt ) {
+		def faas = evt.args[0]
+	}
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('fortaxmapping') && args[0].txntype.objid.matches('ND')}", index=11) 
+	public void validateNewDiscoveryTaxmappingInfo( evt ) {
+		def faas = evt.args[0]
+		def rp = rpSvc.open(faas.rp)
+		if (!rp) throw new Exception('Real Property does not exist or has already been deleted.')
+
+		util.required('Section No.', rp.section)
+		util.required('Parcel No.', rp.parcel)
+	}
+
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('forappraisal')}", index=15) 
+	public void validateAppraisalInfo( evt ) {
+		def faas = evt.args[0]
+		util.required('Memoranda', faas.memoranda)
+	}
+
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('forappraisal') && args[0].txntype.objid.matches('TR|TRC|TRE')}", index=10) 
+	public void validateTransferAppraisalInfo( evt ) {
+		def faas = evt.args[0]
+		util.required('Owner', faas.taxpayer.objid)
+		util.required('Declared Owner', faas.owner.name)
+		if(faas.owner.name.equalsIgnoreCase(faas.prevowner)){
+			throw new Exception('Current Owner must not be equal to previous owner.')
+		}
+	}
+
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('forappraisal') && args[0].txntype.objid.matches('CT')}", index=10) 
+	public void validateChangeTaxabilityInfo( evt ) {
+		def faas = evt.args[0]
+		def rpu = rpuSvc.findRpuInfoById(faas.rpu.objid)
+		def prevrpu = rpuSvc.findRpuInfoById(rpu.previd)
+
+		if (rpu.taxable == 0 && (rpu.exemptiontype == null || rpu.exemptiontype.objid == null))
+			throw new Exception('Exemption Type is required.')
+		
+		if (prevrpu){
+			def invalid = false 
+			if ( prevrpu.taxable == 1 && prevrpu.taxable == rpu.taxable ) 
+				invalid = true
+			else if (prevrpu.taxable != 1 && prevrpu.exemptiontype.objid == rpu.exemptiontype.objid)
+				invalid = true 
+
+			if (invalid)
+				throw new Exception('Current Taxability must not be equal to previous taxability.')
+		}
+	}
+
+
+	@Before(pattern="FAASService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('forappraisal') && args[0].txntype.objid.matches('ND')}", index=10) 
+	public void validateNewDiscoveryInfo( evt ) {
+		def faas = evt.args[0]
+	}
+
+
+
+
+	@Before(pattern="FAASService.initTransaction")  
+	public void interceptInitFaasTransaction( evt ) {
+		def info = evt.args[0]
+		if (info.faas && info.faas.objid){
+			ledgerSvc.checkLedgerApprovedState(info.faas.objid)
+			if (info.txntype.checkbalance == null  || info.txntype.checkbalance == true) {
+				if ( util.toBoolean(var.allow_faas_transaction_with_balance, false) == false ){
+					ledgerSvc.checkLedgerBalance(info.faas.objid)
+				}
+			}
+		}
+	}
+
+	@After(pattern="FAASService.initTransaction", eval="#{result.txntype.objid.matches('TR|TRE|TRC')}", index=10) 
+	public void initTransfer( evt ) {
+		def faas = evt.result 
+		clearInfo(faas)
+		
+	}
+
+
+	@After(pattern="FAASService.initTransaction", eval="#{result.txntype.objid == 'CD'}", index=10) 
+	public void initChangeDepreciation( evt ) {
+		def faas = evt.result 
+		if (faas.rpu.rputype == 'land') {
+			throw new Exception('Cannot depreciate Land property.')
+		}
+	}
+
+
+	@After(pattern="FAASService.initCapture", eval="#{result.txntype.objid == 'ND'}", index=10) 
+	public void initNewDiscovery( evt ) {
+		def faas = evt.result 
+		faas.autonumber = util.toBoolean(var.td_autonumber, false)
+	}
+
+	@After(pattern="FAASService.initTransaction", eval="#{result.txntype.objid == 'MC'}", index=10) 
+	public void initMultipleClaim( evt ) {
+		def info = evt.args[0]
+		def faas = evt.result 
+		faas.rp.claimno = info.claimno 
+		faas.rpu.fullpin += ' (' + info.claimno + ')'
+		faas.prevtdno = null
+		faas.prevpin = null
+		faas.prevowner = null
+		faas.prevav = 0.0
+		faas.prevmv = 0.0
+		faas.rpu.previd = null
+		faas.rp.previd = null
+		clearInfo(faas)
+		faas.previousfaases = []
+	}
+
+	/*---------------------------------------------------
+	*
+	* Clear info related to transfer
+	*
+	*--------------------------------------------------*/	
+	void clearInfo(faas){
+		faas.tdno 					= null
+		faas.titletype				= null
+		faas.titleno				= null
+		faas.titledate				= null
+		faas.taxpayer				= [:]
+		faas.owner					= [:]
+		faas.administrator 			= [:]
+		faas.beneficiary 			= [:]
+		faas.memoranda				= null
+	}
+}
+

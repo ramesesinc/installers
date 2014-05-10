@@ -1,0 +1,53 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import java.rmi.server.UID;
+import com.rameses.util.*;
+import com.rameses.io.*;
+import com.rameses.services.extended.*;
+
+class MultipleEntityInterceptor  {
+
+	@ActiveDB("entity")
+	def	em; 
+
+	@ActiveDB("entitymultiple")
+	def	multi; 
+
+	@After( pattern="EntityService.getColumns", eval="'multiple'.equalsIgnoreCase(args[0].type)" )
+	public void getColumns(evt) {
+		def cols = evt.result;
+		cols.addAll([
+			[name:'fullname', caption:'Name'], 
+			[name:'type', caption:'Type']
+		]);
+	}
+
+	@After(pattern="EntityService.create", eval="'multiple'.equalsIgnoreCase(args[0].type)" )
+	public void afterCreate( evt ) {
+		def entity = evt.result;
+		em.create(entity, "multiple");
+		entity.members?.each { 
+			it.entityid = entity.objid;
+			em.create(it, 'member'); 
+		} 		
+	}
+
+	@After(pattern="EntityService.update", eval="'multiple'.equalsIgnoreCase(args[0].type)" )
+	public void afterUpdate( evt ) {
+		def entity = evt.result;
+		em.update(entity, "multiple");
+		multi.removeMembers([objid: entity.objid]);
+		entity.members?.each { 
+			it.entityid = entity.objid;
+			em.create(it, 'member'); 
+		} 
+	}
+
+	@After(pattern="EntityService.open",  eval="'multiple'.equalsIgnoreCase(args[0].type)")
+	public void afterOpen( evt ) {
+		def entity = evt.result;
+		entity.putAll ( em.read(entity, 'multiple') );
+		entity.members = multi.getMembers([objid: entity.objid]); 
+	}
+
+}

@@ -1,0 +1,52 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+
+
+class RPTTrackingService
+{
+	@ActiveDB('rpttracking')
+	def em 
+
+	@Service('DateService')
+	def dtSvc
+
+	@Service('Var')
+	def var
+
+	@Service('SequenceService')
+	def seqSvc
+
+
+	@ProxyMethod
+	public def assignTrackingNo( entity, filetype, msg ) {
+		def cy = dtSvc.serverYear 
+		def key = 'RT' + var.lgu_objid + cy.toString()[2..3]
+		def trackingno = key + seqSvc.getNextFormattedSeries(key)
+		create([
+			objid 		: entity.objid,
+			filetype	: filetype,
+			trackingno 	: trackingno,
+			msg 		: msg,
+		])
+	}
+
+
+	@ProxyMethod
+	public void create( tracking	) {
+		em.insertTracking(tracking)
+	}
+
+
+	@ProxyMethod
+	public void delete( tracking ) {
+		em.deleteTracking(tracking)
+	}
+
+
+	@ProxyMethod
+	public void updateMessage( tracking ) {
+		em.updateMsg(tracking)
+	}
+}
+

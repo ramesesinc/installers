@@ -1,0 +1,154 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+
+class ReportParameterService{
+	
+	@PersistenceContext('rpt')
+	def em 
+
+	@Service('Var')
+	def var;
+	
+	@Service('DateService')
+	def dateService;
+
+	@Service("OrgService")
+	def orgSvc
+
+	@Service("CityLookupService")
+	def citySvc
+
+	@Service("ProvinceLookupService")
+	def provSvc 
+
+	@Service("MunicipalityLookupService")
+	def munSvc
+
+	@Env
+	def env 
+	
+	@ProxyMethod
+	public def getStandardParameter(){
+		def org = orgSvc.root;
+		org = (org ? org : [:])
+		def lgu = null 
+		if ('city'.equalsIgnoreCase(org.orgclass)){
+			lgu = citySvc.getById( org.objid )
+			if (lgu ){
+				org.lgu_name = lgu.name
+				org.lgu_fullname = lgu.fullname 
+				org.city_name = lgu.name
+			}
+		}
+		else if ('province'.equalsIgnoreCase(org.orgclass)){
+			lgu = provSvc.getById( org.objid );
+			if (lgu){
+				org.lgu_name = lgu.name
+				org.lgu_fullname = lgu.fullname 
+				org.province_name = lgu.name 
+				org.provincetreasurer = lgu.treasurer
+				org.provinceassessor = lgu.assessor 
+			}
+		}
+		else if ('municipality'.equalsIgnoreCase(org.orgclass)){
+			lgu = munSvc.getById( org.objid ) 
+			if (lgu){
+				org.lgu_name = lgu.name
+				org.lgu_fullname = lgu.fullname 
+				org.municipality_name = lgu.name
+			}
+			def province = em.sqlContext.createQuery('''
+				SELECT * FROM province WHERE parentid=$P{objid} AND orgclass='PROVINCE'
+			''').setParameters(org).singleResult
+			if (province){
+				org.parent_lgu_name = province.name
+				org.parent_lgu_fullname = province.fullname 
+				org.province = province.name
+				org.provincetreasurer = province.treasurer 
+				org.provinceassessor = province.assessor 
+			}
+		}
+
+		org.treasurer = lgu?.treasurer 
+		org.assessor = lgu?.assessor 
+		org.mayor = lgu?.mayor 
+		org.governor = lgu?.governor 
+		org.address = lgu?.address 
+
+		def params = [
+			LGUREGION					: var.lgu_region, 
+			SANGGUNIAN_NAME 			: var.sanggunian_name, 
+            LOGOLGU     				: var.url_logo_lgu,                    
+            LOGOBLGF    				: var.url_logo_blgf,   
+            LOGOASSESSOR				: var.url_logo_assessor,                 
+            LOGOTREASURY				: var.url_logo_treasury,                 
+            LGUNAME     				: org.lgu_name, 
+			LGUFORMALNAME 				: org.lgu_fullname, 
+			LGUTYPE		  				: org.orgclass?.toLowerCase(), 
+			LGUADDRESS	  				: org.address, 
+            PARENTLGUNAME 				: org.parent_lgu_name,
+			PARENTLGUFORMALNAME 		: org.parent_lgu_fullname,
+			PROVINCENAME  				: org.province_name,
+			MUNICIPALNAME 				: org.municipality_name,
+			CITYNAME	  				: org.city_name,
+
+			PROVINCIALTREASURERNAME		: org.provincetreasurer?.name,
+			PROVINCIALTREASURERTITLE	: org.provincetreasurer?.title,
+			PROVINCIALTREASUREROFFICENAME	: org.provincetreasurer?.office,
+			PROVINCIALASSESSORNAME 		: org.assessor?.name,
+			PROVINCIALASSESSORTITLE 	: org.assessor?.title,
+			PROVINCIALASSESSOROFFICENAME 	: org.assessor?.office,
+
+            
+            TREASURERNAME   			: org.treasurer?.name,
+            TREASURERTITLE  			: org.treasurer?.title,
+            TREASUREROFFICENAME  		: org.treasurer?.office,
+			ASSESSORNAME 				: org.assessor?.name,
+			ASSESSORTITLE 				: org.assessor?.title,
+			ASSESSOROFFICENAME			: org.assessor?.office,
+
+			MAYOROFFICENAME 			: org.mayor?.office,
+			MAYORNAME   				: org.mayor?.name,
+			MAYORTITLE  				: org.mayor?.title,
+
+			SECRETARYNAME				: var.secretary_name,
+			SECRETRAYTITLE				: var.secretary_title, 
+
+			ACCOUNTANTOFFICENAME		: var.accountant_officename, 
+
+			CASHIERHEADNAME				: var.cashierhead_name,
+			CASHIERHEADTITLE			: var.cashierhead_title, 
+
+			GIVENAT 					: org.address, 
+			USERNAME	 				: env.NAME,
+			USERFULLNAME	 			: env.FULLNAME,
+			USERJOBTITLE 				: env.JOBTITLE, 
+            PRINTDATE   				: dateService.serverDate,
+			PRINTEDBY   				: env.FULLNAME,
+			DATE 						: formalizeDate( 'd' ), 
+			MONTH 						: formalizeDate( 'MMMMM' ),
+			YEAR 						: formalizeDate( 'yyyy' ),
+
+			LANDTAX_CERTIFIEDBY			: var.landtax_certifiedby,
+			LANDTAX_CERTIFIEDBY_TITLE	: var.landtax_certifiedby_title,
+		]
+		return params 
+		
+	}
+
+	def formalizeDate( def fdt ){
+		def dt = new java.text.SimpleDateFormat( fdt ).format(dateService.serverDate).toString();
+		
+		if( 'd'.equals(fdt) || 'dd'.equals(fdt)){
+			if( dt.matches('01|1|21|31') )
+				return dt + 'st';
+			else if( dt.matches('02|2|22') )
+				return dt + 'nd';
+			else if(dt.matches('03|3|23')) 
+				return dt + 'rd';
+			else return dt + 'th';
+		}
+		return dt;
+	}
+	
+}

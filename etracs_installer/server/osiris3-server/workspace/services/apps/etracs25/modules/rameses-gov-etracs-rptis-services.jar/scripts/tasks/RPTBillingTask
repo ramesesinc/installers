@@ -1,0 +1,26 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import java.rmi.server.UID
+
+class RPTBillingTaks {
+
+	@PersistenceContext('system')
+	def em
+
+	@Service('RPTBillingService')
+	def svc 
+	
+	// @Schedule(interval=5)
+	public def recalcBilling(task) {
+		println 'start...'
+		def bill = svc.initBill()
+		def ledgers = svc.getLedgersToRecalc(20)
+		ledgers.each{
+			println 'Recalculating RPT Ledger ' + it.objid 
+			svc.calculateBillByLedgerIdAsync(it.objid)
+		}
+		println 'start...done '
+	}	
+
+}
+

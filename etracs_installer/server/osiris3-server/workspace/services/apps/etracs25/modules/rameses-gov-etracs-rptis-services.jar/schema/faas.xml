@@ -1,0 +1,66 @@
+<schema>
+	<element name="faas" tablename="faas">
+		<field name="objid" primary="true" />
+		<field name="state" required="true"/>
+		<field name="datacapture" required="true"/>
+		<field name="autonumber" required="true"/>
+		<field name="tdno"  />
+		<field name="utdno" required="true" />
+		<field name="txntype_objid" required="true" />
+		<field name="effectivityyear" required="true"/>
+		<field name="effectivityqtr" required="true"/>
+		<field name="titletype" />
+		<field name="titleno" />
+		<field name="titledate" />
+		<field name="rpuid" />
+		<field name="realpropertyid" />
+		<field name="taxpayer_objid" />
+		<field name="taxpayer_name" />
+		<field name="taxpayer_address" />
+		<field name="owner_name" />
+		<field name="owner_address" />
+		<field name="administrator_objid" />
+		<field name="administrator_name" />
+		<field name="administrator_address" />
+		<field name="beneficiary_objid" />
+		<field name="beneficiary_name" />
+		<field name="beneficiary_address" />
+		<field name="memoranda" />
+		<field name="cancelnote" />
+		<field name="restrictionid" />
+		<field name="backtaxyrs" required="true"/>
+		<field name="prevtdno" />
+		<field name="prevpin" />
+		<field name="prevowner" />
+		<field name="prevav" required="true"/>
+		<field name="prevmv" required="true"/>
+		<field name="cancelreason" />
+		<field name="canceldate" />
+		<field name="cancelledbytdnos" />
+		<field name="lguid" />
+		<field name="lgutype" />
+		<field name="txntimestamp" required="true" />
+		<field name="cancelledtimestamp"/>
+		<field name="name"/>
+		<field name="dtapproved" />
+		<complex name="signatories" type="list" serializer="default" />
+	</element>
+
+	<element name="previousfaas" tablename="previousfaas">
+		<field name="faasid" primary="true" />
+		<field name="prevfaasid" primary="true" />
+	</element>
+
+	<element name="backtax" tablename="faasbacktax">
+		<field name="objid" primary="true" />
+		<field name="faasid" required="true" />
+		<field name="ry" required="true" type="integer" />
+		<field name="tdno" required="true"/>
+		<field name="bmv" required="true" type="decimal" />
+		<field name="mv" required="true" type="decimal" />
+		<field name="av" required="true" type="decimal" />
+		<field name="effectivityyear" required="true" type="integer" />
+		<field name="effectivityqtr" required="true" type="integer" />
+		<field name="taxable" required="true" type="boolean" />
+	</element>
+</schema>

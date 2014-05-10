@@ -1,0 +1,71 @@
+<schema>
+    <element name="rptledger" tablename="rptledger">
+        <field name="objid" primary="true" />
+        <field name="state" required="true" />
+        <field name="faasid" required="true" />
+        <field name="nextbilldate" />
+        <field name="lastyearpaid" required="true" type="integer" />
+        <field name="lastqtrpaid" required="true" type="integer" />
+        <field name="firstqtrpaidontime" required="true" type="boolean" />
+        <field name="qtrlypaymentavailed" required="true" type="boolean" />
+        <field name="qtrlypaymentpaidontime" required="true" type="boolean" />
+        <field name="lastreceiptid"/>
+        <field name="barangayid" required="true" />
+        <field name="advancebill" required="true" type="boolean"/>
+        <field name="lastbilledyear" type="integer" />
+        <field name="lastbilledqtr" type="integer"  />
+        <field name="partialbasic" type="decimal" />
+        <field name="partialbasicint" type="decimal" />
+        <field name="partialbasicdisc" type="decimal" />
+        <field name="partialsef" type="decimal" />
+        <field name="partialsefint" type="decimal" />
+        <field name="partialsefdisc" type="decimal" />
+    </element>
+
+    <element name="ledgerfaas" tablename="rptledgerfaas">
+        <field name="objid" primary="true" />
+        <field name="state" required="true" />
+        <field name="rptledgerid" required="true" />
+        <field name="faasid" />
+        <field name="tdno" required="true" />
+        <field name="txntype_objid" required="true" />
+        <field name="classification_objid" required="true" />
+        <field name="actualuse_objid"  />
+        <field name="taxable" required="true" type="boolean" />
+        <field name="reclassed" type="boolean" />
+        <field name="backtax" required="true" type="boolean" />
+        <field name="fromyear" required="true" type="integer" />
+        <field name="fromqtr" required="true" type="integer" />
+        <field name="toyear" required="true" type="integer" />
+        <field name="toqtr" required="true" type="integer" />
+        <field name="assessedvalue" required="true" type="decimal" />
+        <field name="systemcreated" required="true" type="boolean" />
+    </element>
+    <element name="capturepayment" tablename="rptreceipt_capture">
+        <field name="objid" primary="true" />
+        <field name="rptledgerid" required="true" />
+        <field name="receiptno" required="true" />
+        <field name="receiptdate" required="true" />
+        <field name="payorid" />
+        <field name="paidby" required="true" />
+        <field name="paidby_name" required="true" />
+        <field name="paidby_address" required="true" />
+        <field name="collector" required="true" />
+        <field name="postedby" required="true" />
+        <field name="postedbytitle" required="true" />
+        <field name="dtposted" required="true" />
+        <field name="fromyear" type="integer" required="true" />
+        <field name="fromqtr" type="integer" required="true" />
+        <field name="toyear" type="integer" required="true" />
+        <field name="toqtr" type="integer" required="true" />
+        <field name="period" required="true" />
+        <field name="basic" required="true" type="decimal" />
+        <field name="basicint" required="true" type="decimal" />
+        <field name="basicdisc" required="true" type="decimal" />
+        <field name="sef" required="true" type="decimal" />
+        <field name="sefint" required="true" type="decimal" />
+        <field name="sefdisc" required="true" type="decimal" />
+        <field name="firecode" required="true" type="decimal" />
+        <field name="amount" required="true" type="decimal" />
+    </element>
+</schema>

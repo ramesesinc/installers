@@ -1,0 +1,60 @@
+<schema>
+    <element name="subdivision" tablename="subdivision">
+        <field name="objid" primary="true" />
+        <field name="state" required="true" />
+        <field name="ry" required="true" type="integer" />
+        <field name="txntype_objid" required="true" />
+        <field name="txnno" required="true" />
+        <field name="txndate" required="true" />
+        <field name="autonumber" required="true" type="boolean" />
+        <field name="effectivityyear" required="true" type="integer" />
+        <field name="effectivityqtr" required="true" type="integer" />
+        <field name="motherfaasid" required="true" />
+        <field name="memoranda" required="true" />
+        <field name="lguid" required="true" />
+        <complex name="signatories" type="list" serializer="default" />
+    </element>
+
+    <element name="subdividedland" tablename="subdividedland">
+        <field name="objid" primary="true" />
+        <field name="subdivisionid" required="true" />
+        <field name="itemno" required="true" />
+        <field name="newtdno" />
+        <field name="newutdno" required="true" />
+        <field name="newpin" required="true" />
+        <field name="newtitletype"  />
+        <field name="newtitleno"  />
+        <field name="newtitledate"  />
+        <field name="areasqm" required="true" type="decimal" />
+        <field name="areaha" required="true" type="decimal" />
+        <field name="memoranda" required="true" />
+        <field name="administrator_objid" />
+        <field name="administrator_name" />
+        <field name="administrator_address" />
+        <field name="taxpayer_objid" />
+        <field name="taxpayer_name" />
+        <field name="taxpayer_address" />
+        <field name="owner_name" />
+        <field name="owner_address" />
+        <field name="newrpid" required="true" />
+        <field name="newrpuid"  />
+        <field name="newfaasid" />
+    </element>
+
+    <element name="affectedrpu" tablename="subdivisionaffectedrpu">
+        <field name="objid" primary="true" />
+        <field name="subdivisionid" required="true" />
+        <field name="subdividedlandid" />
+        <field name="prevfaasid" required="true" />
+        <field name="newfaasid" />
+        <field name="itemno" />
+        <field name="newtdno" />
+        <field name="newutdno" required="true" />
+        <field name="newsuffix" required="true" type="integer" />
+        <field name="newpin" />
+        <field name="newrpuid" />
+        <field name="newrpid" />
+        <field name="memoranda" required="true" />
+    </element>
+</schema>
+

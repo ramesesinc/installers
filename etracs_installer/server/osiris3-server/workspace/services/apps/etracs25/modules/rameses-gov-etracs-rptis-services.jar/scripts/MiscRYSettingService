@@ -1,0 +1,351 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.util.*
+
+
+public class MiscRYSettingService
+{
+    @PersistenceContext('main')
+    def em
+     
+    @Service('PropertyClassificationService')
+    def pcSvc
+
+    @Service('MiscItemService')
+    def miscItemSvc
+
+    @Service('MiscRYSettingListService')
+    def listSvc 
+    
+    @Service('RYSettingService')
+    def rysettingSvc
+    
+    @Service('RPTParameterService')
+    def paramSvc
+
+    @Service('Var')
+    def var 
+
+    @Service('RPTUtil')
+    def util 
+    
+    def SCHEMA_RYSETTING    = 'miscrysetting' 
+    def SCHEMA_ASSESSLEVEL  = 'miscrysetting:assesslevel' 
+    def SCHEMA_RANGE        = 'miscrysetting:range' 
+    def SCHEMA_ITEMVALUE    = 'miscrysetting:itemvalue' 
+    
+    def STATE_DRAFT     = 'DRAFT'
+    def STATE_APPROVED  = 'APPROVED'
+
+    def SETTING_TYPE    = 'misc' 
+    
+    
+    @ProxyMethod
+    public boolean settingExists() {
+        def settings = listSvc.getList( null )
+        return settings.size() > 0
+    }
+    
+    
+    @ProxyMethod
+    public List getPropertyClassifications() {
+        return pcSvc.getList([:])
+    }
+    
+    
+    @ProxyMethod
+    public def create( entity ) {
+        entity.state = STATE_DRAFT
+        buildAppliedToInfo(entity)
+        validate( entity )
+        em.create( SCHEMA_RYSETTING, entity )
+        loadInitialAssessesLevels(entity)
+        loadInitialMiscItems(entity)
+        rysettingSvc.createLgus( SETTING_TYPE, entity )
+        return entity 
+    }
+
+
+    @ProxyMethod 
+    public Map open( entity ) {
+        entity = em.read(SCHEMA_RYSETTING, entity)
+        entity.lgus = rysettingSvc.loadLgus(SETTING_TYPE, entity.objid)
+        return entity
+    }
+
+
+    @ProxyMethod
+    public def update( entity ) {
+        if (!entity.lgus) throw new Exception('Applied to is required.')
+        buildAppliedToInfo(entity)
+        validate( entity )
+        em.update( SCHEMA_RYSETTING, entity)
+        rysettingSvc.createLgus(SETTING_TYPE, entity )
+        return entity 
+    }
+
+
+    @ProxyMethod
+    public void delete( entity ) {
+        em.sqlContext.createNamedExecutor('miscrysetting:deleteRangesBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('miscrysetting:deleteAssessLevelBySettingId')
+                .setParameters(entity).execute()
+
+        em.sqlContext.createNamedExecutor('miscrysetting:deleteItemValueBySettingId')
+                .setParameters(entity).execute()
+
+        em.delete(SCHEMA_RYSETTING, entity)
+    }
+
+
+    @ProxyMethod
+    public def approve( entity ) {
+        checkApproved( entity )
+        entity.state = STATE_APPROVED
+        em.update(SCHEMA_RYSETTING, entity)    
+        return entity
+    }
+    
+
+
+    @ProxyMethod
+    public def getVariableList( ) {
+        return paramSvc.getVariableList()
+    }
+
+    
+
+    /*----------------------------------------------------------
+    * AssessLevel Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public List getAssessLevels( miscrysettingid )  {
+        return em.sqlContext.createNamedQuery('miscrysetting:getAssessLevels')
+                .setParameter('miscrysettingid', miscrysettingid)
+                .resultList.each{
+                    it.fixrate = util.toBoolean(it.fixrate, true)
+                }
+    }
+
+
+    @ProxyMethod
+    public void saveAssessLevel( assesslevel ) {
+        assesslevel = EntityUtil.mapToField(assesslevel)
+        em.validate(SCHEMA_ASSESSLEVEL, assesslevel )
+        em.save(SCHEMA_ASSESSLEVEL, assesslevel)
+        if( util.isTrue(assesslevel.fixrate)) {
+            deleteRangesByAssessLevelId(assesslevel.objid)
+        }
+    }
+
+    
+    @ProxyMethod
+    public void deleteAssessLevel( assesslevel ) {
+        deleteRangesByAssessLevelId(assesslevel.objid)
+        em.delete(SCHEMA_ASSESSLEVEL, assesslevel )
+    }
+
+
+    @ProxyMethod
+    public List getRanges( miscassesslevelid )  {
+        return em.sqlContext.createNamedQuery('miscrysetting:getRanges')
+                .setParameter('miscassesslevelid', miscassesslevelid)
+                .resultList 
+    }
+
+
+    @ProxyMethod
+    public def saveRange( range  ) {
+        em.validate(SCHEMA_RANGE, range)
+        em.save(SCHEMA_RANGE, range)
+    }
+
+
+    @ProxyMethod
+    public def deleteRange( range  ) {
+        em.delete(SCHEMA_RANGE, range)
+    }
+
+    @ProxyMethod
+    public void deleteRangesByAssessLevelId(miscassesslevelid){
+        em.sqlContext.createNamedExecutor('miscrysetting:deleteRangesByAssessLevelId')
+            .setParameter('miscassesslevelid', miscassesslevelid)
+            .execute()
+    }
+
+
+
+    /*----------------------------------------------------------
+    * MiscItemValue SUPPORT
+    ----------------------------------------------------------*/
+    
+    @ProxyMethod
+    public def getMiscItemValues( miscrysettingid ){
+        return em.sqlContext.createNamedQuery( 'miscrysetting:getMiscItemValues' )
+                    .setParameter( 'miscrysettingid', miscrysettingid)
+                    .resultList
+    }
+
+    
+    @ProxyMethod
+    public void saveMiscItemValue( itemvalue ) {
+        itemvalue = EntityUtil.mapToField(itemvalue)
+        em.validate(SCHEMA_ITEMVALUE, itemvalue)
+        em.save(SCHEMA_ITEMVALUE, itemvalue)
+    }
+
+    
+    @ProxyMethod
+    public void deleteMiscItemValue( itemvalue ) {
+           em.delete(SCHEMA_ITEMVALUE, itemvalue )
+    }
+
+   
+
+
+    /*----------------------------------------------------------
+    * COPY Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public Map copy( objid, ry ) {
+        def oldsettingid = objid
+        def setting = em.read( SCHEMA_RYSETTING, [objid:objid] )
+        if (!setting) throw new Exception('Setting does not exists or has already been deleted.')
+
+        setting.previd = null
+        setting.objid = util.generateId('MS')
+        setting.ry = ry  
+        setting.appliedto = null
+        em.create( SCHEMA_RYSETTING, setting )
+
+        copyAssessLevels( setting.objid, oldsettingid )
+        copyItemValues( setting.objid, oldsettingid )
+        return open( setting)
+    }
+
+    
+    @ProxyMethod
+    public Map reviseSetting( newry, copyYear ) {
+        required('Copy Year', copyYear )
+        if( newry <= copyYear ) throw new Exception('New Revision Year must be greater than copy year.')
+        def setting = em.sqlContext.createNamedQuery('miscrysetting:getIdByRy').setParameter('ry', copyYear).singleResult
+        if( !setting ) throw new Exception('Revision Year ' + copyYear  + ' setting is not defined.')
+        
+        //create setting 
+        def oldsettingid = setting.objid 
+        setting = em.read( SCHEMA_RYSETTING, [objid:oldsettingid] )
+        setting.previd = setting.objid 
+        setting.objid = util.generateId('MRY')
+        setting.ry = newry  
+        checkDuplicateSetting( setting )
+        em.create( SCHEMA_RYSETTING, setting )
+        
+        copyAssessLevels( setting.objid, oldsettingid )
+        copyItemValues( setting.objid, oldsettingid )
+        rysettingSvc.copyLgus( SETTING_TYPE, setting.objid, oldsettingid)
+        return open( setting)
+    }
+
+
+
+    /*----------------------------------------------------------
+    * Support Methods
+    ----------------------------------------------------------*/
+    void validate( entity ) {
+        if( entity.ry <= 0 ) throw new Exception('Revision Year must be greater than zero.')
+        em.validate(SCHEMA_RYSETTING, entity )
+    }
+    
+
+    void checkDuplicateSetting( entity ) {
+        def data = em.sqlContext.createNamedQuery('miscrysetting:checkDuplicate').setParameters( entity ).singleResult
+        if( data ) throw new Exception('Setting for year ' + entity.ry + ' already exists.')
+    }
+    
+    
+    void required( caption, value ) {
+        def msg = caption + ' is required.' 
+        if( ! value ) 
+            throw new Exception( msg )
+        if( value instanceof String && value.trim().length() == 0 ) 
+            throw new Exception( msg )
+    }
+
+
+    void buildAppliedToInfo(entity){
+        if (! entity.lgus) {
+            entity.lgus = [[rysettingid:entity.objid,lguid:var.lgu_objid, lguname:var.lgu_name, settingtype:SETTING_TYPE]]
+        }
+        entity.appliedto = entity.lgus.lguname.join(', ')
+    }
+
+
+    void loadInitialAssessesLevels(entity){
+        getPropertyClassifications().each{
+            saveAssessLevel([
+                objid               : it.objid,
+                miscrysettingid     : entity.objid,
+                classification_objid : it.objid,
+                classification      : it,
+                code                : it.code,
+                name                : it.name, 
+                fixrate             : true,
+                rate                : 0.0
+            ])
+        }
+    }
+
+    void loadInitialMiscItems(entity){
+        miscItemSvc.getList([:]).each{
+            saveMiscItemValue([
+                objid           : util.generateId('MIV'),
+                miscrysettingid : entity.objid,
+                miscitem_objid  : it.objid,
+                expr            : 0.00,
+            ])
+        }
+    }
+
+
+    void copyItemValues( newsettingid, oldsettingid ) {
+        def itemvalues = getMiscItemValues( oldsettingid )
+        itemvalues.each {
+            it.previd = it.objid
+            it.objid = util.generateId('IV')
+            it.miscrysettingid = newsettingid
+            saveMiscItemValue( it )
+        }
+    }
+    
+    
+    void copyAssessLevels( newsettingid, oldsettingid ) {
+        def assesslevels = getAssessLevels( oldsettingid )
+        assesslevels.each {
+            it.previd = it.objid 
+            it.objid = util.generateId('AL')
+            it.miscrysettingid = newsettingid
+            saveAssessLevel( it )
+            copyRanges(newsettingid, it)
+        }
+    }
+
+    void copyRanges(newsettingid, assesslevel){
+        getRanges(assesslevel.previd).each{
+            it.previd = it.objid 
+            it.objid = util.generateId('ALR')
+            it.miscrysettingid = newsettingid
+            it.miscassesslevelid = assesslevel.objid 
+            saveRange( it )
+        }
+    }
+
+
+    void checkApproved( entity ){
+        def old = open(entity)
+        if (old.state == STATE_APPROVED)
+        throw new Exception('Setting has already been approved.')
+    }
+
+}

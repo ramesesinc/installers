@@ -1,0 +1,31 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+
+class NotificationService 
+{   
+    @ActiveDB('user_notification')
+    def user;
+
+    @ActiveDB('group_notification')
+    def group;    
+    
+    @ProxyMethod 
+    public List getColumns( Map params ) {
+        return [ 
+            [name:'dtfiled', caption:'Date Filed', maxWidth:130],
+            [name:'message', caption:'Message', type:'label'],
+            [name:'sender', caption:'Sender', maxWidth:150] 
+        ]; 
+    }  
+
+    @ProxyMethod
+    public List getList( Map params ) {
+        if (params.type == 'group') {
+            return group.getList([groupid: params.groupid]); 
+        } else if (params.type == 'user') {
+            return user.getList([recipientid: params.recipientid]);
+        } else {
+            return []; 
+        } 
+    }   
+}

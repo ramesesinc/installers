@@ -1,0 +1,111 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+
+class GroupNotificationService
+{	
+	@ActiveDB('group_notification')
+	def em;
+
+	@Service('DateService')
+	def dateSvc;
+
+	@Service 
+	def self;
+
+	@Env
+	def env;
+
+    @ProxyMethod 
+    public def addMessage( data ) { 
+    	data.notificationid   = 'MSG'+new java.rmi.server.UID();
+    	data.dtfiled = dateSvc.serverDate; 
+    	if (!data.senderid) data.senderid = env.USERID; 
+
+        em.create(data, 'group'); 
+		notify(data);
+		return data;  
+    } 
+
+    @ProxyMethod 
+    public def getMessage( params ) { 
+        def data = null; 
+        if (params.notificationid) { 
+            data = em.findByNotificationid( params ); 
+        } else { 
+            data = em.findByPrimary( params ); 
+        } 
+        resolveMessage( data );
+        return data; 
+    } 
+
+    @ProxyMethod 
+    public void removeMessage( params ) { 
+        def data = null; 
+        if (params.notificationid) { 
+            data = em.findByNotificationid( params ); 
+        } else { 
+            data = em.findByPrimary( params ); 
+        } 
+
+        if (!data) return; 
+
+        em.delete(data, 'group'); 
+        self.notifyRemove(data);   
+    } 
+
+    @ProxyMethod 
+    public def getList( params ) {
+        return em.getList( params ); 
+    } 
+
+    @ProxyMethod 
+    public void getNotified( params ) {
+        if (!params.groups) return;
+
+        params.groups.each {
+            def list = getList([groupid: it]); 
+            self.notifyMessages(list); 
+        } 
+    } 
+
+    private void resolveMessage( data ) {
+        if (data?.data) {
+            char[] chars = data.data.toString().toCharArray();
+            byte[] bytes = new Base64CoderImpl().decode(chars);
+            data.rawdata = new com.rameses.io.IOStream().readObject(bytes); 
+        } 
+    }     
+
+
+
+	@XConnection('ws_sender')
+	def wssender;
+
+    @Async
+    @ProxyMethod(local=true)
+    public void notify( data ) {
+        data.channel = 'group'; 
+        data.status  = 'PENDING'; 
+        resolveMessage( data );
+		wssender.send( data ); 
+    }    
+
+    @Async
+    @ProxyMethod(local=true)
+    public void notifyRemove( data ) {
+        data.channel = 'group'; 
+        data.status  = 'REMOVED'; 
+        wssender.send( data ); 
+    }     
+
+    @Async
+    @ProxyMethod(local=true)
+    public void notifyMessages( list ) {
+        list?.each { 
+            it.channel = 'group'; 
+            it.status  = 'PENDING'; 
+            resolveMessage( it );
+            wssender.send( it ); 
+        } 
+    } 
+}

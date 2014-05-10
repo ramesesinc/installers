@@ -1,0 +1,61 @@
+
+import com.rameses.annotations.*;
+import com.rameses.http.*;
+import com.rameses.util.*;
+
+class SMSService 
+{	
+	@ActiveDB('sms')
+	def em;
+
+	@Service('DateService')
+	def dateSvc; 
+
+	@Service(value="SMSService", connection="sms_send")
+	def remote;
+
+	@ProxyMethod
+	public def send( Map entity ) { 
+		def inbox = em.findInbox([objid: entity.objid]); 
+		if (inbox) { 
+			em.markInboxAsSuccess(inbox); 
+			em.removeInboxPending(inbox); 
+		} 
+			
+		int limit = 160;
+		int len = entity.message.toString().length();
+		int creditcount = (len / limit);
+		if (len%limit > 0) creditcount++;
+
+		entity.state = 'SEND';
+		entity.dtfiled = dateSvc.serverDate;
+		entity.creditcount = creditcount;
+		em.create(entity, 'outbox');
+
+		//submit to sms cloud 
+		def response = remote.send(entity); 		
+		entity.dtsend = dateSvc.serverDate; 		
+		entity.remarks = 'MESSAGE SUCCESSFULLY SENT';
+		entity.traceid = response?.traceid; 		
+		em.markOutboxAsSend(entity); 
+		return entity; 
+	} 
+	
+	@ProxyMethod 
+	public void messageReceived( Map params ) { 
+		def inbox = em.findInbox([objid: params.objid]); 
+		if (inbox) { 
+			em.removeInboxPending(inbox); 
+			em.markInboxAsSuccess(inbox); 
+		} else { 
+			throw new Exception("'"+params.objid+"' sms message not found. Please verify.");  
+		}
+	} 	
+
+	@ProxyMethod 
+	public def ping() {
+		return [
+			service: (remote? remote.toString(): null)
+		];
+	}
+} 

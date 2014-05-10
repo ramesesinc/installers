@@ -1,0 +1,25 @@
+<schema>
+	<element name="rpttask" tablename="rpttask">
+		<field name="taskid" primary="true"/>
+		<field name="objid" required="true" />
+		<field name="action"  required="true" />
+		<field name="docname" required="true" />
+		<field name="refno" required="true" />
+		<field name="filetype" required="true" />
+		<field name="msg"  />
+		<field name="status" required="true" />
+		<field name="startdate" required="true" />
+		<field name="enddate" />
+		<field name="createdby_objid" required="true" />
+		<field name="createdby_name" required="true" />
+		<field name="createdby_title" />
+		<field name="assignedto_objid" />
+		<field name="assignedto_name" />
+		<field name="assignedto_title" />
+		<field name="workflowid" />
+		<field name="signatory" />
+	</element>
+</schema>
+
+
+

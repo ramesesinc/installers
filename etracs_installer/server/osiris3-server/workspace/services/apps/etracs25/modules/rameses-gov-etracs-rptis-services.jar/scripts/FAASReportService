@@ -1,0 +1,629 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+
+class FaasReportService
+{
+	@PersistenceContext('main')
+	def em
+	
+	@Service('NumberService')
+	def numberSvc
+
+
+	@Service('TxnSignatoryService')
+	def signatorySvc 
+
+	@Service('EntityContactService')
+	def contactSvc 
+
+
+	@Service('RPTUtil')
+	def util
+	
+	def LISTLIMITSIZE1 = 10
+	def LISTLIMITSIZE2 = 7
+	
+	@Service('FAASService')
+	def faasSvc 
+	
+	@Service('BldgRYSettingService')
+	def bldgrySvc 
+
+	@Service('LGUService')
+	def lguSvc 
+	
+	@ProxyMethod 
+	public def getFaasIds(params) {
+		params.section = params.section ? params.section : '%'
+		return em.sqlContext.createNamedQuery('faas:getFaasIds').setParameters( params).resultList;
+	}
+	
+	@ProxyMethod
+	public def getReportData( faasid ) {
+		def faas = faasSvc.loadFaas([objid:faasid])
+		if( !faas ) throw new Exception('Cannot open FAAS with ID No. ' + faasid + '.')
+		
+		faas.taxeffectivity = faas.effectivityqtr + "Q - " + faas.effectivityyear
+		faas.taxability = ( faas.rpu.taxable ? "TAXABLE" : "EXEMPT" )
+		
+		def muni = lguSvc.lookupMunicipalityById(faas.rp.barangay.parentid)
+		def district = lguSvc.lookupDistrictById(faas.rp.barangay.parentid)
+		def prov = lguSvc.lookupProvinceById(muni?.parentid)
+		def city = lguSvc.lookupCityById(district?.parentid)
+		faas.propertylocation = ( muni ? muni.name + ', ' : '') + ( prov ? prov.name : city.name )
+
+		getOwnerContactNo( faas )
+		signatorySvc.loadSignatories('faas', faas)
+		
+		if( faas.rpu.rputype == 'land' ) { 
+			LISTLIMITSIZE1 = 10
+			LISTLIMITSIZE2 = 7
+			faas.landappraisals = getLandDetails( faas.rpu )
+			faas.planttreesappraisals = getPlantTreeDetails( faas.rpu )
+			faas.landadjustments = getLandAdjustments( faas.rpu )
+			faas.propertyassessments = getPropertyAssessements( faas.rpu )
+		}
+		else if( faas.rpu.rputype == 'mach' ) {
+			LISTLIMITSIZE1 = 14
+			LISTLIMITSIZE2 = 7
+			getLandReference( faas )
+			faas.machdetails = getMachDetails( faas.rpu )
+			faas.propertyappraisals = getPropertyAppraisals( faas.rpu )
+			faas.propertyassessments = getMachPropertyAssessments( faas.rpu )
+		}
+		else if( faas.rpu.rputype == 'planttree' ) {
+			LISTLIMITSIZE1 = 10	
+			LISTLIMITSIZE2 = 7	
+			faas.landappraisals = getDummy()
+			faas.planttreesappraisals = getPlantTreeDetails( faas.rpu )
+			faas.landadjustments = getPlantTreeLandAdjustments( faas.rpu )
+			faas.propertyassessments = getPlantTreePropertyAssessements( faas.rpu )
+		} 
+		else if( faas.rpu.rputype == 'misc' ) {
+			LISTLIMITSIZE1 = 25			
+			LISTLIMITSIZE2 = 7
+			faas.miscpropertyappraisals = getMiscPropertyAppraisals( faas.rpu )
+			faas.miscadjustments = getMiscAdjustments( faas.rpu )
+			faas.propertyassessments = getMiscPropertyAssessments( faas.rpu )
+		} 
+		else {
+			LISTLIMITSIZE1 = 30
+			LISTLIMITSIZE2 = 3
+			getLandReference( faas )
+			
+			def depreciation = numberSvc.format("#,##0.00", faas.rpu.depreciation) + ' %'
+			faas.depreciation = depreciation
+			faas.bldgstructures = getBldgStructures( faas.rpu )
+			faas.additionalitems = getAdditionalItems( faas.rpu )
+			faas.propertyassessments = getBldgPropertyAssessment( faas.rpu )
+			
+			faas.subtotal = faas.rpu.totalbmv
+			
+			def setting = bldgrySvc.open( [objid: faas.rpu.bldgtype.bldgrysettingid ] )
+			faas.rpu.predominant = setting ? setting.predominant : true;
+			faas.rpu.formattedassesslevel = numberSvc.format("#,##0", faas.rpu.assesslevel ) + ' %'
+
+			if( setting && !setting.depreciatecoreanditemseparately ) {
+				if( faas.additionalitems && faas.additionalitems[0].amount) {
+					def addlitmtotalamt = faas.additionalitems.findAll{it.amount != null}.amount.sum()
+					faas.subtotal = faas.subtotal.add( addlitmtotalamt )
+				}
+			}
+			
+			faas.depreciationvalue = faas.subtotal * (faas.rpu.depreciation / 100)
+		}	
+	
+		return faas
+	}
+	
+	private void getOwnerContactNo( faas ) {
+		def list = contactSvc.getList([entityid:faas.taxpayer.objid])
+			
+		if( list ) {
+			def contacts = []
+			list.each { contacts << it.contact }
+			faas.ownercontactno = contacts.join("/") 
+		}
+	}
+	
+	private def getLandDetails( rpu ) {
+    	def data = []
+		rpu.landdetails.each {
+			def item = [
+				classification	: rpu.classification.name,
+				subclass		: it.specificclass.name + '  (' + it.subclass.name + ')',
+				actualuse 		: it.actualuse.name,
+				area			: ( it.areatype == 'HA' ? it.areaha : it.areasqm ),
+				unitvalue		: it.unitvalue,
+				basemarketvalue	: it.basemarketvalue,
+				areatype		: it.areatype
+			]
+			
+			data.add( item )
+		}
+		
+		LISTLIMITSIZE1 = buildEmptyRows( data, LISTLIMITSIZE1, true )
+		
+		return data
+    }
+	
+	private def getPlantTreeDetails( rpu ) {
+    	def data = []
+		rpu.planttrees?.each {
+			def item = [
+				planttreename 	: it.planttree.name,
+				nonproductive	: it.nonproductive * 1.0,
+				productive		: it.productive * 1.0,
+				unitvalue		: it.unitvalue,
+				basemarketvalue	: it.basemarketvalue
+			]
+			
+			data.add( item )
+		}
+		
+		LISTLIMITSIZE1 = buildEmptyRows( data, LISTLIMITSIZE1, false )
+		
+		return data
+    }
+	
+	private def getLandAdjustments( rpu ) {
+		def data = []
+		def list = []
+		def percentadj
+		def adjpercentage
+		def item
+		
+		rpu.landdetails.each { itm ->
+		
+			rpu.landadjustments?.each {
+				if(itm.basemarketvalue != 0.00) {
+					percentadj = (it.adjustment / itm.basemarketvalue) * 100
+					adjpercentage = numberSvc.format("#,##0", percentadj) + " %"
+				}
+				item = [
+					actualuse		: itm.actualuse.name,
+					basemarketvalue	: itm.basemarketvalue,
+					adjtypename		: it.adjustmenttype.name,
+					adjpercentage	: adjpercentage,
+					adjustment		: it.adjustment,
+					marketvalue		: itm.marketvalue
+				]
+				
+				list.add( item )
+			}
+			
+			itm.actualuseadjustments?.each {
+				if(itm.basemarketvalue != 0.00) {
+					percentadj = (it.adjustment / itm.basemarketvalue) * 100
+					adjpercentage = numberSvc.format("#,##0", percentadj) + " %"
+				}
+				
+				item = [
+					actualuse		: itm.actualuse.name,
+					basemarketvalue	: itm.basemarketvalue,
+					adjtypename		: it.adjustmenttype.name,
+					adjpercentage	: adjpercentage,
+					adjustment		: it.adjustment,
+					marketvalue		: itm.marketvalue
+				]
+				
+				list.add( item )
+			}
+		}
+		
+		if( rpu.totalplanttreebmv != 0.0 )
+			list = list + getPlantTreeLandAdjustments( rpu )
+		
+		def group = list.groupBy{ it.actualuse + it.adjtypename }
+		group.keySet().each{
+			def list2 = group[it]
+			def item2 = [
+				actualuse		: list2[0].actualuse,
+				basemarketvalue	: list2.basemarketvalue.sum(),
+				adjtypename		: list2[0].adjtypename,
+				adjpercentage	: list2[0].adjpercentage,
+				adjustment		: list2.adjustment.sum(),
+				marketvalue		: list2.marketvalue.sum()
+			]
+			
+			data.add( item2 )
+		}
+		
+		def group2 = data.groupBy{ it.actualuse }
+		group2.keySet().each{
+			def list3 = group2[it] 
+			for( int i = 0; i<list3.size() -1; i++ ) {
+				list3[i].marketvalue = null 
+			}
+		}
+		
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, true )
+		
+		return data
+	}
+	
+	private def getPropertyAssessements( rpu ) {
+		def data = []
+		def list = []
+		def assesslevel
+		def item
+		
+		rpu.landdetails?.each{
+			item = [
+				classification	: rpu.classification.name,
+				actualuse 		: it.actualuse.name,
+				marketvalue		: it.marketvalue,
+				assesslevel		: it.assesslevel,
+				assessedvalue	: it.assessedvalue
+			]
+			
+			list.add( item )
+		}
+		
+		if( rpu.planttrees ) {
+			item = [
+				classification	: rpu.classification.name,
+				actualuse 		: 'PLANT',
+				marketvalue		: rpu.totalplanttreemv,
+				assesslevel		: rpu.planttrees[0].assesslevel,
+				assessedvalue	: rpu.totalplanttreeav
+			]
+			
+			list.add( item )
+		}
+		
+		def group = list.groupBy{ it.classification + it.actualuse }
+		def keysets = group.keySet()
+		keysets.each{
+			def list2 = group[it]
+			assesslevel = numberSvc.format("#,##0", list2[0].assesslevel) + " %"
+			def item2 = [
+				classification	: list2[0].classification,
+				actualuse 		: list2[0].actualuse,
+				marketvalue		: list2.marketvalue.sum(),
+				assesslevel		: assesslevel,
+				assessedvalue	: list2.assessedvalue.sum()
+			]
+			
+			data.add( item2 )
+		}
+		
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, false )
+		
+		return data
+	}
+	
+	private void getLandReference( faas ) {
+		def info = em.sqlContext.createNamedQuery('faas:getLandReference').setParameter('landrpuid', faas.rpu.landrpuid).singleResult
+		if(info) {
+			faas.landownername = info.ownername
+			faas.landownerpin = info.fullpin
+			faas.landtdno = info.tdno
+			faas.landarea = info.totalareasqm
+			faas.landlotno = info.cadastrallotno
+		}
+	}
+	
+	private def getMachDetails( rpu ) {
+		def data = []
+		
+		rpu.machuses?.each { itm ->
+			itm.machines?.each {
+				def brandmodel = (it.brand? it.brand : '') + (it.model ? '/' + it.model : '')
+				
+				def item = [
+					machinename			: it.machine.name,
+					brandmodelno		: brandmodel,
+					capacity			: it.capacity,
+					yearacquired		: it.yearacquired,
+					estimatedlife		: it.estimatedlife,
+					remaininglife		: it.remaininglife,
+					yearinstalled		: it.yearinstalled,
+					operationyear		: it.operationyear
+				]
+				
+				data.add( item )
+			}
+		}
+		
+		LISTLIMITSIZE1 = buildEmptyRows( data, LISTLIMITSIZE1, true )
+		
+		return data
+	}
+	
+	private def getPropertyAppraisals( rpu ) {
+		def data = []
+		
+		rpu.machuses?.each { itm ->
+			itm.machines?.each {
+				def additionalcost = new BigDecimal( 0.0 )
+				
+				if( it.freightcost )
+					additionalcost.add( it.freightcost )
+				
+				if( it.insurancecost )
+					additionalcost.add( it.insurancecost )
+					
+				if( it.installationcost )
+					additionalcost.add( it.installationcost )
+					
+				if( it.othercost )
+					additionalcost.add( it.othercost )
+					
+				def depreciation = numberSvc.format("#,##0", it.depreciation) + ' %'
+				
+				def item = [
+					machinename			: it.machine.name,
+					originalcost		: it.originalcost,
+					additionalcost		: additionalcost,
+					acquisitioncost		: it.acquisitioncost,
+					conversionfactor	: it.conversionfactor,
+					replacementcost		: it.replacementcost,
+					yearsused			: it.yearsused,
+					marketvalue			: it.marketvalue,
+					depreciation		: depreciation,
+					depreciationvalue	: it.depreciationvalue
+				]
+				
+				data.add( item )
+			}
+		}
+		
+		LISTLIMITSIZE1 = buildEmptyRows( data, LISTLIMITSIZE1, false )
+		
+		return data
+	}
+	
+	private def getMachPropertyAssessments( rpu ) {
+		def data = []
+		
+		rpu.machuses?.each {
+			def assesslevel = numberSvc.format("#,##0", it.assesslevel) + ' %'
+			def item = [
+				actualuse		: it.actualuse.name,
+				marketvalue		: it.marketvalue,
+				assesslevel		: assesslevel,
+				assessedvalue	: it.assessedvalue
+			]
+			
+			data.add( item )
+		}
+		
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, false )
+		
+		return data
+	}
+	
+	private def getPlantTreeLandAdjustments( rpu ) {
+		def data = []
+		def adjpercentage
+    		
+		if( rpu.planttrees ) {
+			if( rpu.planttrees[0].adjustmentrate != 0.0 ) { 
+				adjpercentage = numberSvc.format("#,##0", rpu.planttrees[0].adjustmentrate) + ' %'
+				
+				def item = [
+					actualuse		: 'PLANT',
+					basemarketvalue	: rpu.planttrees.basemarketvalue.sum(),
+					adjtypename		: 'TOTAL LAND ADJUSTMENT',
+					adjpercentage	: adjpercentage,
+					adjustment		: rpu.planttrees.adjustment.sum(),
+					marketvalue		: rpu.planttrees.marketvalue.sum()
+				]
+				
+				data.add( item )
+			}
+		}	
+		
+		if( rpu.rputype == 'planttree' )
+			LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, true )
+		
+		return data
+	}
+	
+	private def getPlantTreePropertyAssessements( rpu ) {
+		def data = []
+		def assesslevel = numberSvc.format("#,##0", rpu.planttrees[0].assesslevel) + ' %'
+		
+		def item = [
+			classification	: rpu.classification.name,
+			actualuse 		: 'PLANT',
+			marketvalue		: rpu.totalmv,
+			assesslevel		: assesslevel,
+			assessedvalue	: rpu.totalav
+		]
+		
+		data.add( item )
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, false )
+		
+		return data
+	}
+	
+	private def getMiscPropertyAppraisals( rpu ) {
+		def data = []
+		
+		rpu.items?.each {
+			def binding = buildFieldBindings( it, rpu.rputype )
+			binding += buildParamBindings( it.params )
+			def expr = replaceExpr( it.expr, binding )
+			def item = [
+				classification	: rpu.classification.name,
+				actualuse		: rpu.actualuse.name,
+				miscitemname	: it.miscitem.name,
+				expr			: expr,
+				basemarketvalue	: it.basemarketvalue
+			]
+			
+			data.add( item )
+		}
+		
+		LISTLIMITSIZE1 = buildEmptyRows( data, LISTLIMITSIZE1, false )
+		
+		return data
+	}
+	
+	private def getMiscAdjustments( rpu ) {
+		def data = []
+		
+		rpu.items?.each {
+			def depreciationrate = numberSvc.format("#,##0", it.depreciation) + ' %'
+			
+			def item = [
+				actualuse		: rpu.actualuse.name,
+				basemarketvalue	: it.basemarketvalue,
+				adjtypename		: 'DEPRECIATION',
+				depreciationrate: depreciationrate,
+				depreciatedvalue: it.depreciatedvalue,
+				marketvalue		: it.marketvalue
+			]
+			
+			data.add( item )
+		}
+		
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, true )
+		
+		return data
+	}
+	
+	private def getMiscPropertyAssessments( rpu ) {
+		def data = []
+		def assesslevel = numberSvc.format("#,##0.00", rpu.items[0].assesslevel) + ' %'
+		def item = [
+			classification	: rpu.classification.name,
+			actualuse 		: rpu.actualuse.name,
+			marketvalue		: rpu.totalmv,
+			assesslevel		: assesslevel,
+			assessedvalue	: rpu.totalav
+		]
+			
+		data.add( item )
+		
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, false )
+		
+		return data
+	}
+	
+	private def getBldgStructures( rpu ) {
+		def data = []
+		
+		rpu.structures?.each {
+			def item = [
+				structurename : it.structure.name,
+				materialname  : it.material.name ? it.material.name : ''
+			]
+			
+			data.add( item )
+		}
+		
+		LISTLIMITSIZE1 = buildEmptyRows( data, LISTLIMITSIZE1, false )
+		
+		return data
+		
+	}
+	
+	private def getAdditionalItems( rpu ) {
+		def data = []
+		
+		rpu.bldguses?.each { bldguse ->
+			bldguse.floors?.each { floor ->
+				floor.additionals?.each {
+					def binding = buildFieldBindings( floor, rpu.rputype )
+					binding += buildParamBindings( it.params )
+					def  expr = replaceExpr( it.expr, binding )
+					
+					def item = [
+						floorno 	: floor.floorno,
+						addlitemcode: it.additionalitem.code,
+						addlitemname: it.additionalitem.name,
+						expr		: expr,
+						amount		: it.amount
+					]
+					
+					data.add( item )
+				}
+			}
+		}
+		
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, true )
+		
+		return data
+	}
+	
+	private def getBldgPropertyAssessment( rpu  ) {
+		def data = []
+
+		rpu.bldguses?.each {
+			def assesslevel = numberSvc.format("#,##0", ( rpu.useswornamount ? rpu.assesslevel : it.assesslevel)) + ' %'
+			
+			def item = [
+				actualuse	 : it.actualuse.name,
+				marketvalue	 : (util.isTrue(rpu.useswornamount) ? rpu.totalmv : it.marketvalue),
+				assesslevel	 : assesslevel,
+				assessedvalue: (util.isTrue(rpu.useswornamount) ? rpu.totalav : it.assessedvalue ),
+			]
+
+			data.add( item )
+		}
+
+		LISTLIMITSIZE2 = buildEmptyRows( data, LISTLIMITSIZE2, false )
+		
+		return data
+	}
+	
+	private def buildFieldBindings( item, rputype ) {
+		if( rputype == 'misc' ) {
+			return [
+				SYS_BASE_MARKET_VALUE       : item.basemarketvalue,
+				SYS_MARKET_VALUE            : item.marketvalue,
+				SYS_DEPRECIATED_VALUE		: item.depreciatedvalue,
+				SYS_ASSESSED_VALUE          : item.assessedvalue
+			]
+		}
+		else {
+			return [
+				SYS_BASE_MARKET_VALUE       : item.basemarketvalue,
+				SYS_MARKET_VALUE            : item.marketvalue,
+				SYS_BASE_VALUE              : item.basevalue,
+				SYS_UNIT_VALUE              : item.unitvalue,
+				SYS_AREA                    : item.area
+			]
+		}
+	}
+	
+	private def buildParamBindings( params ) {
+		def binding = [:]
+        params.each {
+            binding[it.param.name] = it.decimalvalue ? it.decimalvalue : it.intvalue 
+        }
+		
+        return binding
+	}
+	
+	private def replaceExpr( expr, binding ) {
+		binding.keySet().each { key ->
+			expr = expr.replace( key, numberSvc.format( "#,##0.00", binding[key] ) )
+		}
+		
+		return expr
+	}
+	
+	private def getDummy() {
+		def data = []
+		LISTLIMITSIZE1 = buildEmptyRows( data, LISTLIMITSIZE1, false )
+		
+		return data
+	}
+	
+	private def buildEmptyRows( data, listlimitsize, flag ) {
+		for(int i=data.size +1; i<=listlimitsize; i++) {
+			data.add( [areatype:null] )
+		}
+		
+		if( flag && data.size > listlimitsize )
+			listlimitsize = listlimitsize - ( data.size - listlimitsize )
+			
+		return listlimitsize
+	}
+
+
+}

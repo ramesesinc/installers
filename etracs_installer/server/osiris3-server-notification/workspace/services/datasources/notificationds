@@ -1,0 +1,6 @@
+dialect=mssql
+driverClass=com.microsoft.sqlserver.jdbc.SQLServerDriver
+url=jdbc:sqlserver://@etracsdbhost;DatabaseName=notification
+user=@etracsdbuser
+pwd=@etracsdbpwd
+maxPoolSize=100

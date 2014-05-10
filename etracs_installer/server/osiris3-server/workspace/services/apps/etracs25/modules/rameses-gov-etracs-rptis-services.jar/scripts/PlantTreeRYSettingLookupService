@@ -1,0 +1,41 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.util.*
+
+public class PlantTreeRYSettingLookupService
+{
+    @PersistenceContext('rpt')
+    def em
+    
+
+    @Service('LookupUtilService')
+	def lupSvc 
+
+
+    @ProxyMethod
+    public def lookupAssessLevels(params){
+    	return lupSvc.lookup( 'planttreerysettinglookup:lookupAssessLevels', params, 'lal.objid' )
+    }
+
+
+    @ProxyMethod
+    public def lookupAssessLevelByPrevId(previd){
+        return em.sqlContext.createNamedQuery('planttreerysettinglookup:lookupAssessLevelByPrevId')
+                .setParameter('previd', previd).singleResult    
+    }
+
+
+    @ProxyMethod
+    public def lookupUnitValues(params){
+    	return lupSvc.lookup( 'planttreerysettinglookup:lookupUnitValues', params, 'puv.objid' )
+    }
+
+
+    @ProxyMethod
+    public def lookupUnitValueByPrevId(previd){
+        return em.sqlContext.createNamedQuery('planttreerysettinglookup:lookupUnitValueByPrevId')
+                .setParameter('previd', previd).singleResult    
+    }
+
+
+}

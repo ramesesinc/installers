@@ -1,0 +1,21 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+
+class SubdivisionListService
+{
+	@PersistenceContext('rpt')
+	def em
+    
+	
+	@Service('ListUtilService')
+	def listSvc 
+	
+	@ProxyMethod
+	public List getList( Map params ) {
+		params.state = (params.state ? params.state : '%')
+		params.searchtext = (params.searchtext ? params.searchtext : '%')
+		return listSvc.getList( 'subdivision:getList', params, "s.objid" )
+	}
+
+}
+

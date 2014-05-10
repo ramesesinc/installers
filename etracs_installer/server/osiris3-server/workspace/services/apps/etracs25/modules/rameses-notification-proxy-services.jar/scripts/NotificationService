@@ -1,0 +1,18 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+
+class NotificationService 
+{   
+    @Service(value='NotificationService', connection="notification_proxy")
+    def svc; 
+    
+    @ProxyMethod 
+    public List getColumns( Map params ) {
+        return svc.getColumns( params ); 
+    }  
+
+    @ProxyMethod
+    public List getList( Map params ) {
+        return svc.getList( params ); 
+    }   
+}

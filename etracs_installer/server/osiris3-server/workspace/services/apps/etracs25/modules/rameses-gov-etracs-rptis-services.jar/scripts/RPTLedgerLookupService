@@ -1,0 +1,46 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import com.rameses.util.*
+
+class RPTLedgerLookupService
+{
+    @PersistenceContext('rpt') 
+    def em
+
+    @Service('RPTUtil')
+    def util
+
+
+    @ProxyMethod
+    public def getList( params ) {
+        if (! params) params = [:]
+        params.state = 'APPROVED'
+        params.tdno = params.searchtext
+        params.prevtdno = params.searchtext
+        params.searchtext = (params.searchtext ? params.searchtext : '') + '%'
+
+        def filters = [
+            ' AND f.tdno = $P{tdno} AND rl.state = $P{state}',
+            ' AND f.owner_name LIKE $P{searchtext} AND rl.state = $P{state}',
+            ' AND rpu.fullpin LIKE $P{searchtext} AND rl.state = $P{state}',
+            ' AND rp.cadastrallotno LIKE $P{searchtext} AND rl.state = $P{state}',
+            ' AND rp.surveyno LIKE $P{searchtext} AND rl.state = $P{state}',
+            ' AND f.prevtdno = $P{prevtdno} AND rl.state = $P{state}',
+            ' AND f.prevowner LIKE $P{searchtext} AND rl.state = $P{state}',
+        ]
+        return util.getListFromQuery('rptledger:getList', filters, params, 'rl.objid')
+    }
+
+    @ProxyMethod
+    public def getColumns( params ) {
+        return [ 
+            [name:'tdno', caption:'TD No.'],
+            [name:'owner.name', caption:'Taxpayer Name'],
+            [name:'rputype', caption:'Type'],
+            [name:'fullpin', caption:'PIN'],
+            [name:'totalav', caption:'Assessed Value', type:'decimal'],
+            [name:'state', caption:'State'],
+        ]   
+    }
+}
+

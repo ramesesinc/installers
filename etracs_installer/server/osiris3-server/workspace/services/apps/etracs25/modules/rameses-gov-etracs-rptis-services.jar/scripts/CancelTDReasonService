@@ -1,0 +1,34 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+
+class CancelTDReasonService extends ActiveCrudListService
+{
+	@ActiveDB('canceltdreason')
+	def em
+	
+
+	void beforeList(params){
+		if (params == null) params = [:]
+		params.searchtext = (params.searchtext ? params.searchtext :'')+'%'
+	}
+
+
+	@ProxyMethod
+	public def getColumns( params ) {
+		return [
+            [name:"code", caption:"Code", width:50],
+            [name:"name", caption:"Title", width:250],
+            [name:"description", caption:"Description", width:250],
+            [name:"state", caption:"State", width:100],
+        ]	
+	}	
+
+
+	@ProxyMethod
+	public def getCancelTDReasons( params ) {
+		beforeList(params)
+		return em.getCancelTDReasons(params)
+	}
+
+}

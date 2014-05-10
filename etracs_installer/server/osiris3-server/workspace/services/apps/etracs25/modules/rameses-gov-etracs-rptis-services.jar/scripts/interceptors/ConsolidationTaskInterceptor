@@ -1,0 +1,101 @@
+import com.rameses.annotations.*
+import com.rameses.eserver.*;
+import com.rameses.common.*;
+
+class ConsolidationTaskInterceptor
+{
+	@Service('ConsolidationService')
+	def svc 
+
+	@Service('RPTTaskService')
+	def taskSvc
+
+	@Service('RPTTrackingService')
+    def trackingSvc
+
+    @Service('RPTWorkflowService')
+    def workflowSvc 
+
+    @Service(value="GroupNotificationService", connection="notification_proxy")
+    def notificationSvc    
+
+
+	@Env
+	def env 
+
+	def CS_TXN_TYPE = 'CS'
+
+	@Before(pattern="ConsolidationService.deleteConsolidation") 
+	public void deleteConsolidation( evt ) {
+		def entity = evt.args[0]
+		taskSvc.delete(entity)
+	}
+
+
+	def createTask(entity, wf){
+		return [
+			objid		: entity.objid,
+			refno		: entity.txnno,
+			docname 	: 'Consolidation',
+			filetype	: 'consolidation',
+			action 		: wf.tostate,
+			status		: wf.message,
+			signatory 	: wf.signatory,
+			workflowid  : wf.workflowid,
+		]
+	}
+
+
+	@After(pattern="ConsolidationService.createConsolidation") 
+	public void createConsolidation( evt ) {
+		def consolidation = evt.result
+		def startwf = workflowSvc.findStart([docname:'Consolidation', appliedto:CS_TXN_TYPE, fromstate:null])
+		def task = createTask(consolidation, startwf)
+		task = taskSvc.createTask(task)
+		taskSvc.assignTask(task)
+		updateSignatoryFromTask(consolidation, task)
+	}
+
+
+	@After(pattern="ConsolidationService.approveConsolidationAsync") 
+	public void approveConsolidationAsync( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+		trackingSvc.updateMessage([objid:evt.result.objid, msg:'Consolidation is already approved.'])
+	}
+
+	@After(pattern="ConsolidationService.approveConsolidation") 
+	public void approveConsolidation( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+	}
+
+	@After(pattern="ConsolidationService.disapproveConsolidation") 
+	public void disapproveConsolidation( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+	}
+
+
+	@After(pattern="RPTTaskService.(createNextUserTask|assignTaskToMe)", eval="#{result.filetype == 'consolidation'}") 
+	public void updateSignatoryInfo( evt ) {
+		def task = evt.result 
+		def consolidation = svc.openConsolidation(task.objid)
+		updateSignatoryFromTask(consolidation, task)
+		try{
+			notificationSvc?.removeMessage([objid:consolidation.objid])
+		}
+		catch(e){
+			println 'Notification Error ==================================================='
+			println e.message
+		}
+	}
+
+	void updateSignatoryFromTask(consolidation, task){
+		if (! consolidation[task.signatory]) 
+			consolidation[task.signatory] = [:]
+
+		consolidation[task.signatory].dtsigned = task.startdate 
+		consolidation[task.signatory].name = task.assignedto.name 
+		consolidation[task.signatory].title = task.assignedto.title
+		svc.updateConsolidation(consolidation) 
+	}	
+}
+

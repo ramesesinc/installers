@@ -1,0 +1,67 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import java.util.concurrent.*
+import java.rmi.server.UID
+
+class RPTReportDelinquencyService
+{
+	@Env
+	def env 
+
+	@ActiveDB('report_rptdelinquency')
+	def em
+
+	@Service('RPTBillingService')
+	def billSvc
+
+	@Service('DateService')
+	def dtSvc 
+
+
+	@ProxyMethod
+	public def getBarangayList(  ) {
+		return em.getBarangayList()
+	}
+
+	@ProxyMethod
+	public def getOpenLedgersByBarangay( barangay ) {
+		def params = [barangayid:barangay.objid, cy:dtSvc.serverYear]
+		return em.getOpenLedgersByBarangay(params)
+	}
+
+
+	@ProxyMethod
+	public void cleanup() {
+		em.cleanup();
+	}
+
+	@ProxyMethod
+	public void buildDelinquency( rptledger, dtgenerated ) {
+		def items = billSvc.generateBillItemsByLedger(rptledger.objid)
+		if (!items) return;
+
+		def pdate = dtSvc.parseCurrentDate();
+
+		items.each{ item ->
+			if (item.total > 0.0){
+				item.objid = 'I' + new java.rmi.server.UID()
+				item.barangayid = rptledger.barangayid
+				item.dtgenerated = dtgenerated
+				item.generatedby = [name:env.FULLNAME, title:env.TITLE]
+				item.year = (int)item.year
+				em.create(item)
+			}
+		}
+	}
+
+
+	@ProxyMethod
+	public def generateDelinquencyReport(barangay){
+		def list =  em.getDelinquentLedgers(barangay)
+		if (!list) throw new Exception('No records found. Try rebuilding the delinquency for this barangay.')
+		return list;
+	}
+
+
+}
+

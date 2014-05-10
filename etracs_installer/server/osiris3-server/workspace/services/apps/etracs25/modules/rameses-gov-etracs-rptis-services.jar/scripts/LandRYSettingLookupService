@@ -1,0 +1,70 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.eserver.*;
+import java.rmi.server.UID;
+import com.rameses.util.*
+
+public class LandRYSettingLookupService
+{
+	@PersistenceContext('rpt')
+	def em
+     
+    @Service('LookupUtilService')
+	def lupSvc 
+
+
+    @ProxyMethod
+    public def lookupAssessLevels(params){
+    	return lupSvc.lookup( 'landrysettinglookup:lookupAssessLevels', params, 'lal.objid' )
+    }
+
+
+    @ProxyMethod
+    public def lookupAssessLevelByPrevId(previd){
+        return em.sqlContext.createNamedQuery('landrysettinglookup:lookupAssessLevelByPrevId')
+                .setParameter('previd', previd).singleResult
+    }
+
+    @ProxyMethod
+    public def lookupSubclasses(params){
+    	return lupSvc.lookup( 'landrysettinglookup:lookupSubclasses', params, 'sub.objid' )
+    }
+
+
+    @ProxyMethod
+    public def lookupSubclassByPrevId(previd){
+        return em.sqlContext.createNamedQuery('landrysettinglookup:lookupSubclassByPrevId')
+                .setParameter('previd', previd).singleResult
+    }
+
+
+    @ProxyMethod
+    public def lookupStrippings(params){
+    	return lupSvc.lookup( 'landrysettinglookup:lookupStrippings', params, 'st.objid' )
+    }
+
+
+    @ProxyMethod
+    public def lookupStrippingByPrevId(previd){
+        return em.sqlContext.createNamedQuery('landrysettinglookup:lookupStrippingByPrevId')
+                .setParameter('previd', previd).singleResult
+    }
+
+
+    @ProxyMethod
+    public def lookupAdjustmentTypes(params){
+    	return lupSvc.lookup( 'landrysettinglookup:lookupAdjustmentTypes', params, 'lat.objid' ).each{
+            it.classifications = em.sqlContext.createNamedQuery('landrysetting:getAdjustmentTypeClassifications')
+                                    .setParameter('landadjustmenttypeid', it.objid)
+                                    .resultList
+        }
+    }
+
+
+    @ProxyMethod
+    public def lookupAdjustmentTypeByPrevId(previd){
+        return em.sqlContext.createNamedQuery('landrysettinglookup:lookupAdjustmentTypeByPrevId')
+                .setParameter('previd', previd).singleResult
+    }
+	
+}

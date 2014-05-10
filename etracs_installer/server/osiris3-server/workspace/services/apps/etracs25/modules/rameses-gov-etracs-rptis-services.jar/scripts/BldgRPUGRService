@@ -1,0 +1,85 @@
+import com.rameses.annotations.*
+import com.rameses.util.*
+
+class BldgRPUGRService
+{
+	@PersistenceContext('rpt')
+	def em
+
+	@Service('BldgRYSettingLookupService')
+	def lookupSvc
+
+	@Service('BldgRPUService')
+	def bldgRpuSvc 
+
+	@Service('PinService')
+	def pinSvc
+    
+	@Service('Var')
+	def var 
+
+	@Service('RPTUtil')
+	def util
+
+	@Service('DateService')
+	def dtSvc 
+
+	
+	@ProxyMethod
+	public def reviseBldgRpu(rpu){
+		rpu.dtappraised = dtSvc.serverDate 
+		rpu.bldgtype = lookupSvc.lookupBldgTypeByPrevId(rpu.bldgtype.objid)
+		if (rpu.floorcount == null || rpu.floorcount == 0){
+			rpu.floorcount = 1
+		}
+		rpu.basevalue = 0;
+		rpu.bldgkindbucc = lookupSvc.lookupBldgKindBuccByPrevId(rpu.bldgkindbucc.objid)
+		if (rpu.bldgkindbucc ){
+			rpu.basevalue = rpu.bldgkindbucc.basevalue 
+			if (rpu.bldgkindbucc.basevaluetype == 'range'){
+				rpu.basevalue = rpu.bldgkindbucc.maxbasevalue 
+			}
+		}
+
+		reviseBldgUses(rpu)
+		bldgRpuSvc.calculateAssessment(rpu)
+		
+		return rpu
+	}
+
+
+	void reviseBldgUses( rpu) {
+		reviseActualUse( rpu  )
+		reviseFloors( rpu )
+	}
+	
+	void reviseActualUse( rpu  ) {
+		def deletedUses = []
+		rpu.bldguses.each{ bu ->
+			bu.actualuse =  lookupSvc.lookupAssessLevelByPrevId(bu.actualuse.objid)
+			if( !bu.actualuse  ) {
+				deletedUses.add( bu )
+			}
+		}
+		rpu.bldguses.removeAll( deletedUses )
+	}
+	
+	void reviseFloors(rpu) {
+		rpu.bldguses.each{ bu ->
+			bu.floors.each{ floor -> 
+				def deletedItems = []
+				floor.additionals.each{  addl ->
+					addl.additionalitem = lookupSvc.lookupAdditionalItemByPrevId(addl.objid)
+					if (addl.additionalitem) {
+						addl.expr = addl.additionalitem.expr 
+					}
+					else {
+						deletedItems.add(addl)
+					}
+				}
+				floor.additionals.removeAll( deletedItems )
+			}
+		}
+	}
+}
+ 

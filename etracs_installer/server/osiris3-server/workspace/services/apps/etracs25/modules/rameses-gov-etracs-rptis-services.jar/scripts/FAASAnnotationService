@@ -1,0 +1,185 @@
+import com.rameses.common.*
+import com.rameses.annotations.*
+import com.rameses.util.*
+
+class FAASAnnotationService 
+{
+	@PersistenceContext('rpt')
+	def em 
+	
+	@Service('TxnRefService')
+	def txnRef
+
+	@Service('WorkflowStateService')
+	def workflowRef
+	
+	@Service('SequenceService')
+	def seqSvc
+	
+	@Service('DateService')
+	def dateSvc
+
+	@Service('FAASService')
+	def faasSvc 
+	
+	@Service('RPTUtil')
+    def util 
+
+
+	@Env
+	def env
+	
+	def SCHEMA_NAME = 'faasannotation'
+	
+	def STATE_DRAFT 		= 'DRAFT' 
+	def STATE_FORAPPROVAL 	= 'FORAPPROVAL' 
+	def STATE_APPROVED 		= 'APPROVED' 
+	def STATE_CANCELLED 	= 'CANCELLED' 
+	
+	
+	@ProxyMethod
+    public def getList( params ) {
+    	params.searchtext = (params.searchtext ? params.searchtext : '') + '%'
+        def filters = [
+            ' and fa.txnno LIKE $P{searchtext}',
+            ' and f.tdno LIKE $P{searchtext}',
+            ' and f.owner_name LIKE $P{searchtext}',
+            ' and r.fullpin LIKE $P{searchtext}',
+            ' and fa.fileno LIKE $P{searchtext}',
+        ]
+        return util.getListFromQuery( 'faasannotation:getList' , filters, params, 'fa.objid' )
+    }
+
+    @ProxyMethod
+    public def getColumns(params) {
+        return [
+            [name:"annotationtype.objid", caption:"Annotation Type", width:100],
+            [name:"memoranda", caption:"Memoranda", width:250],
+            [name:"fileno", caption:"File No.", width:100],
+            [name:"txnno", caption:"Txn No.", width:120],
+            [name:"txndate", caption:"Txn Date", width:150],
+            [name:"orno", caption:"O.R. No.", width:100],
+            [name:"ordate", caption:"O.R. Date", width:120],
+            [name:"oramount", caption:"O.R. Amount", type:'decimal', width:120],
+            [name:"state", caption:"State", width:100],
+        ]
+    }
+
+
+	@ProxyMethod
+	public List getAnnotationTypes() {
+		return em.sqlContext.createNamedQuery('faasannotation:getAnnotationTypes').resultList
+	}
+	
+
+	@ProxyMethod
+	public def initAnnotation( faas ) {
+		txnRef.checkReference(faas.objid)
+		if (faas.state == 'CANCELLED') throw new Exception('FAAS has already been cancelled.')
+		if (faas.state != 'CURRENT') throw new Exception('FAAS is not yet approved. Only current record is allowed.')
+		return [
+			objid : util.generateId('FA'),
+			state : STATE_DRAFT,
+			faas  : faas,
+			faasid : faas.objid, 
+			oramount : 0.0,
+		]	
+	}
+	
+	@ProxyMethod
+	public Map createAnnotation( annotation ) {
+		validateInfo( annotation )
+		annotation.state  = STATE_DRAFT
+		workflowRef.insert(annotation)
+		annotation.txnno  = seqSvc.getNextFormattedSeries('FAASAnnotation')
+		annotation.txndate  = dateSvc.serverDate
+		em.create(SCHEMA_NAME,  annotation)
+		//allow multiple annotations 
+		//txnrefSvc.insert(annotation.faasid,  annotation.objid, 'Annotation', 'FAAS is referenced by Annotation No. ' + annotation.docno + '.' )
+		return annotation 
+	}
+
+
+	@ProxyMethod
+	public Map updateAnnotation( annotation ) {
+		validateInfo( annotation )
+		em.update(SCHEMA_NAME, annotation)
+		return annotation 
+	}
+
+
+	@ProxyMethod
+	public def openAnnotation( objid ) {
+		def annotation = em.sqlContext.createNamedQuery('faasannotation:open').setParameter('objid', objid).singleResult
+		if( !annotation ) throw new Exception('Record does not exist or has already been deleted.')
+		return annotation 
+	}
+
+
+	@ProxyMethod
+	public def deleteAnnotation( annotation ) {
+		txnRef.delete(annotation.objid)
+		workflowRef.deleteAll(annotation)
+		em.delete(SCHEMA_NAME, annotation)	
+	}
+
+
+	@ProxyMethod
+	public def cancelAnnotation(annotation) {
+		annotation.state = STATE_CANCELLED
+		workflowRef.insert(annotation)
+		em.update(SCHEMA_NAME, annotation)
+	}
+
+
+	@ProxyMethod
+	public Map submitAnnotationForApproval( annotation ) {
+		validateInfo( annotation )
+		annotation.state = STATE_FORAPPROVAL
+		workflowRef.insert(annotation)
+		em.update( SCHEMA_NAME, annotation )
+		return annotation 
+	}
+
+
+	@ProxyMethod
+	public Map approveAnnotation( annotation ) {
+		validateInfo(annotation)
+		annotation.state = STATE_APPROVED
+		workflowRef.insert(annotation)
+		em.update( SCHEMA_NAME, annotation )
+		return annotation 
+	}
+
+
+	@ProxyMethod
+	public def disapproveAnnotation( annotation ) {
+		workflowRef.delete(annotation)
+		annotation.state = STATE_DRAFT
+		em.update(SCHEMA_NAME, annotation) 
+		return annotation 
+	}
+
+	@ProxyMethod
+	public def getAnnotationsByFaasId( faasid ) {
+		return em.sqlContext.createNamedQuery('faasannotation:getActiveAnnotationsByFaasId')
+					.setParameter('faasid', faasid)
+					.resultList 
+	}
+
+
+	void validateInfo( annotation ) {
+		def currdate = dateSvc.serverDate 
+		def ordate	 = dateSvc.parse('yyyy-MM-dd', annotation.ordate )
+		if( ordate > currdate ) throw new Exception('O.R. Date must not exceed current date.')
+		checkFaasCurrentState( annotation.faasid )
+	} 
+	
+
+	void checkFaasCurrentState( faasid ) {
+		def state = faasSvc.getState(faasid)
+		if( state != 'CURRENT' ) throw new Exception('FAAS to annotate is not current.\nOnly current record is allowed.')
+	}
+
+
+}

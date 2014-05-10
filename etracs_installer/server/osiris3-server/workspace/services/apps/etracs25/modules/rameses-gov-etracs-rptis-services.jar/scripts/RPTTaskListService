@@ -1,0 +1,84 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+class RPTTaskListService extends ActiveListService
+{
+	@ActiveDB('rpttask')
+	def em 
+
+    @Env
+    def env 
+
+	String pagingKeys = 't.objid'
+
+
+    @ProxyMethod
+    public def getNodes(o) {
+        return [
+           [name:'mytask', caption:'My Tasks', leaf:true, folder:true, allowSearch:true],
+           [name:'open', caption:'Open Tasks', leaf:true, folder:true, allowSearch:true, filetype:'rpttask'],
+        ];
+    }   
+
+
+    @ProxyMethod
+    public def getColumns(params) {
+        return [
+            [name:"filetype", caption:"Doc Type", width:200],
+            [name:"action", caption:"Action", width:200],
+            [name:"refno", caption:"Ref. No.", width:150],
+            [name:"msg", caption:"Message", width:250],
+            [name:"startdate", caption:"Start Time", width:120],
+            [name:"enddate", caption:"End Time", width:120],
+            [name:"createdby.name", caption:"Created By", width:200],
+            [name:"assignedto.name", caption:"Assigned To", width:200],
+            [name:"duration", caption:"Duration (min)", width:200],
+        ]
+    }
+
+
+	void beforeList(params){
+        params.filters = ''
+        params.refno = params.searchtext 
+        params.searchtext = (params.searchtext ? params.searchtext :'')
+
+        switch(params.name) {
+            case 'search':
+                params.filters  += ' AND t.refno LIKE $P{searchtext} AND t.assignedto_objid IS NULL  AND t.enddate IS NULL '
+                break
+
+            case 'mytask':
+                params.userid   = env.USERID 
+                params.filters  += ' AND t.refno LIKE $P{searchtext}  AND t.assignedto_objid = $P{userid} AND t.enddate IS NULL'
+                break
+
+            case 'open':
+                params.filters  += ' AND t.refno LIKE $P{searchtext} AND t.assignedto_objid IS NULL  AND t.enddate IS NULL '
+                break            
+
+            default :
+                break
+        }
+	}
+	
+    
+    @ProxyMethod
+    public def getLogs( objid ) {
+        return em.getListById([objid:objid])
+    }
+
+    @ProxyMethod
+    public def getLogColumns(params) {
+        return [
+            [name:"action", caption:"Action", width:200],
+            [name:"startdate", caption:"Start Date", width:150],
+            [name:"enddate", caption:"End Date", width:150],
+            [name:"createdby.name", caption:"Created By", width:200],
+            [name:"assignedto.name", caption:"Assigned To", width:200],
+            [name:"msg", caption:"Message", width:200],
+            [name:"duration", caption:"Duration (min)", width:200],
+        ]
+    }
+
+}

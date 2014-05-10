@@ -1,0 +1,189 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+class RealPropertyService 
+{
+	@ActiveDB('realproperty')
+	def em
+
+	@Service('LGUService')
+	def lguSvc
+
+	@Service('RPTUtil')
+	def util
+
+	@Service('Var')
+	def var 
+
+	@Service('WorkflowStateService')
+	def workflowSvc 
+
+	def STATE_INTERIM       = 'INTERIM'
+    def STATE_FORAPPROVAL   = 'FORAPPROVAL'
+    def STATE_CURRENT       = 'CURRENT'
+    def STATE_CANCELLED     = 'CANCELLED'
+
+    def SECTION_NEW_MAX  	= 3
+	def PARCEL_NEW_MAX  	= 2
+	def SECTION_OLD_MAX  	= 2
+	def PARCEL_OLD_MAX  	= 3
+
+
+	@ProxyMethod
+	public def init(  ) {
+		def objid = util.generateId('RP')
+		return [
+			objid		: objid,
+			state 		: 'INTERIM',
+			lguid		: var.lgu_objid,
+			lgutype 	: var.lgu_type,
+			ry 			: var.current_ry,
+			autonumber	: false,
+			isnew   	: true,
+			pintype 	: var.pin_type,
+		]	
+	}
+
+	@ProxyMethod
+	public def create( entity ) {
+		entity.barangayid = entity.barangay?.objid
+		entity.state = STATE_INTERIM
+		validateSectionParcelLength(entity)
+		em.create(entity)	
+		return entity;
+	}
+
+	@ProxyMethod
+	public def update( entity ) {
+		entity.barangayid = entity.barangay?.objid
+		validateSectionParcelLength(entity)
+		em.update(entity)	
+		return entity;
+	}
+
+	@ProxyMethod
+	public def open( entity ) {
+		entity = em.read(entity)	
+		entity.autonumber = util.toBoolean(entity.autonumber, false)
+		entity.barangay = lguSvc.lookupBarangayById(entity.barangayid)
+		entity.isection = null
+		entity.iparcel = null
+		if (entity.section)
+			entity.isection = util.toInteger(entity.section)
+		if (entity.parcel)			
+			entity.iparcel = util.toInteger(entity.parcel)
+		return entity 
+	}
+
+	@ProxyMethod
+	public void removeEntity( entity ) {
+		workflowSvc.delete(entity)
+		em.delete(entity)	
+	}
+
+
+	@ProxyMethod
+	public def approve( entity ) {
+		entity.state = STATE_CURRENT
+		em.cancelPreviousRealProperty(entity)
+		def retval = em.approve(entity)	
+		return entity
+	}
+
+
+	@ProxyMethod
+	public def disapprove( entity ) {
+		entity.state = STATE_INTERIM
+		def retval = em.disapprove(entity)	
+		if (retval == 0) throw new Exception('Real Property has already been approved or cancelled.')
+		return entity
+	}
+	
+	@ProxyMethod
+    public def getRyList(  ) {
+        return em.getLandRevisionYears().ry;
+    }
+
+
+    @ProxyMethod
+    public def validateRealPropertyForFaas(rp, faasid){
+    	if (rp.state == STATE_CANCELLED)
+    		throw new Exception('Real Property has already been cancelled.')
+
+    	def faas = em.findFaasByRealPropertyId([realpropertyid:rp.objid, faasid:faasid])
+    	if (faas)
+    		throw new Exception('Real Property is currently referenced by TD No. ' + faas.tdno + '.')
+    }
+
+
+	@ProxyMethod
+	public def buildPin( rp, info ) {
+		if (! info.pintype ) {
+			info.pintype = var.pin_type 
+		}
+		util.required('Pin Type', info.pintype)
+		util.required('Barangay PIN', info.barangay.pin)
+		util.required('Section', info.section)
+		util.required('Parcel', info.parcel)
+		
+		def maxsectionlen = null
+		def maxparcellen = null
+		def pin = null
+		
+		if (info.pintype.toLowerCase() == 'new'){
+			maxsectionlen = SECTION_NEW_MAX
+			maxparcellen  = PARCEL_NEW_MAX
+			pin = info.barangay.pin
+		}
+		else {
+			maxsectionlen = SECTION_OLD_MAX
+			maxparcellen  = PARCEL_OLD_MAX
+			pin = info.barangay.oldpin
+		}
+		
+		validateLength('Section', info.section.toString().length(), maxsectionlen)
+		validateLength('Parcel', info.parcel.toString().length(), maxparcellen)
+
+		def section = info.section.toString().padLeft(maxsectionlen,'0')
+		def parcel  = info.parcel.toString().padLeft(maxparcellen,'0')
+		pin = pin + '-' + section + '-' + parcel 
+
+		if (info.claimno) {
+			pin += '-' + info.claimno
+		}
+
+		rp.pintype = info.pintype 
+		rp.section = section 
+		rp.parcel  = parcel 
+		rp.pin     = pin 
+		return rp 
+	}
+
+	@ProxyMethod
+    public def checkDuplicatePin(params) {
+    	def rp = em.findDuplicatePin(params)
+    	if (rp)
+    		throw new Exception('Duplicate PIN No. ' + params.pin + ' is not allowed.')
+    }
+
+	void validateSectionParcelLength(entity){
+		if (entity.pintype == 'new' && entity.section?.length() > 3) 
+			throw new Exception('Invalid section. Section must be less than or equal to 999.')
+        if (entity.pintype == 'old' && entity.section?.length() > 2) 
+        	throw new Exception('Invalid section. Section must be less than or equal to 99.')
+
+        if (entity.pintype == 'new' && entity.parcel?.length() > 2) 
+        	throw new Exception('Invalid parcel. Parcel must be less than or equal to 99.')
+        if (entity.pintype == 'old' && entity.parcel?.length() > 3) 
+        	throw new Exception('Invalid parcel. Parcel must be less than or equal to 999.')
+	}
+ 
+	void validateLength(type, value, maxvalue ){
+		if (value > maxvalue)
+			throw new Exception(type + ' must not exceed ' + maxvalue + '.')
+
+		if (value < 0)
+		throw new Exception(type + ' must not be zero.')
+	}
+}

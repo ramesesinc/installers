@@ -1,0 +1,450 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.util.*
+
+public class BldgRYSettingService
+{
+	@PersistenceContext('main')
+	def em
+
+    @Service('PropertyClassificationService')
+    def pcSvc
+
+    @Service('BldgRYSettingListService')
+    def listSvc 
+    
+    @Service('RYSettingService')
+    def rysettingSvc
+
+    @Service('RPTUtil')
+    def util
+    
+    @Service('Var')
+    def var 
+    
+    def SCHEMA_RYSETTING        = 'bldgrysetting' 
+    def SCHEMA_ASSESSLEVEL      = 'bldgrysetting:assesslevel' 
+    def SCHEMA_ASSESSLEVELRANGE = 'bldgrysetting:range' 
+    def SCHEMA_BLDGTYPE         = 'bldgrysetting:bldgtype' 
+    def SCHEMA_STOREY           = 'bldgrysetting:multistoreyadjustment' 
+    def SCHEMA_DEPRECIATION     = 'bldgrysetting:depreciation' 
+    def SCHEMA_BLDGKINDBUCC     = 'bldgrysetting:bldgkindbucc' 
+    def SCHEMA_ADDITIONALITEM   = 'bldgrysetting:bldgadditionalitem' 
+
+    def STATE_DRAFT     = 'DRAFT'
+    def STATE_APPROVED  = 'APPROVED'
+	def SETTING_TYPE    = 'bldg' 
+    
+
+    @ProxyMethod
+    public boolean settingExists() {
+        def settings = listSvc.getList(null)
+        return settings.size() > 0
+    }
+    
+     
+    @ProxyMethod
+    public def create( entity ) {
+        entity.state = STATE_DRAFT
+        entity.predominant = false 
+        entity.depreciatecoreanditemseparately = false
+        entity.computedepreciationbasedonschedule = false
+        entity.straightdepreciation = false
+        entity.calcbldgagebasedondtoccupied = false 
+        buildAppliedToInfo( entity )
+		validate( entity )		
+        em.create(SCHEMA_RYSETTING, entity )
+        loadInitialAssessesLevels(entity)
+		rysettingSvc.createLgus( SETTING_TYPE, entity )
+		return entity 
+    }
+
+    @ProxyMethod
+    public def update( entity ) {
+        if (!entity.lgus) throw new Exception('Applied to is required.')
+        buildAppliedToInfo(entity)
+        validate( entity )
+        em.update(SCHEMA_RYSETTING, entity)
+        rysettingSvc.createLgus(SETTING_TYPE, entity )
+        return entity 
+    }
+    
+
+    @ProxyMethod 
+    public Map open( entity ) {
+        entity = em.read('bldgrysetting', entity)
+
+        if (!entity)
+        throw new Exception('Setting does not exists or has already been deleted.')
+
+        entity.predominant = util.toBoolean(entity.predominant, true)
+        entity.depreciatecoreanditemseparately = util.toBoolean(entity.depreciatecoreanditemseparately, false)
+        entity.computedepreciationbasedonschedule = util.toBoolean(entity.computedepreciationbasedonschedule, false)
+        entity.straightdepreciation = util.toBoolean(entity.straightdepreciation, true)
+        entity.calcbldgagebasedondtoccupied = util.toBoolean(entity.calcbldgagebasedondtoccupied, true)
+        
+        entity.lgus = rysettingSvc.loadLgus( SETTING_TYPE, entity.objid )
+        return entity 
+    }
+    
+
+    @ProxyMethod
+    public void delete( entity ) {
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteAssessLevelRanges').setParameters(entity).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteAssessLevels').setParameters(entity).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteAdditionalItems').setParameters(entity).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteBldgKindBuccs').setParameters(entity).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteDepreciations').setParameters(entity).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteStoreyAdjustments').setParameters(entity).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteBldgTypes').setParameters(entity).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteRySettingLgus').setParameter('rysettingid', entity.objid).execute()
+        em.delete( SCHEMA_RYSETTING, entity)
+    }
+
+		
+	@ProxyMethod
+	public Map copy( objid, ry ) {
+		//create setting 
+        def oldsettingid = objid
+        def setting = em.read( SCHEMA_RYSETTING, [objid:objid] )
+        if (!setting) throw new Exception('Setting does not exists or has already been deleted.')
+
+        setting.previd = null
+        setting.objid = util.generateId('BS')
+        setting.ry = ry  
+        setting.appliedto = null
+        em.create( SCHEMA_RYSETTING, setting )
+
+        copyAssessLevels(setting.objid, oldsettingid)
+        copyAdditionalItems(setting.objid, oldsettingid)
+        copyBldgTypes(setting.objid, oldsettingid)
+
+		return open( setting )
+	}
+	
+    
+    
+    /*----------------------------------------------------------
+    * AssessLevel Support
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public void saveAssessLevel( assesslevel ) {
+        def xal = EntityUtil.mapToField(assesslevel)
+        em.validate(SCHEMA_ASSESSLEVEL, xal )
+        em.save(SCHEMA_ASSESSLEVEL, xal )
+        if (util.isTrue(assesslevel.fixrate)){
+            deleteRanges(assesslevel.objid)
+        }
+    }
+
+    
+    @ProxyMethod
+    public void deleteAssessLevel( assesslevel ) {
+        deleteRanges(assesslevel.objid)
+        em.delete(SCHEMA_ASSESSLEVEL, assesslevel )
+    }
+    
+
+    @ProxyMethod
+    public def getAssessLevels( bldgrysettingid  ) {
+        return em.sqlContext.createNamedQuery('bldgrysetting:getAssessLevels')
+                .setParameter('bldgrysettingid', bldgrysettingid)
+                .resultList.each{
+                    it.fixrate = util.toBoolean(it.fixrate, false)
+                }
+    }
+
+    /*----------------------------------------------------------
+    * AssessLevelRange Support
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public def saveRange( range ) {
+        em.validate(SCHEMA_ASSESSLEVELRANGE, range)    
+        em.save(SCHEMA_ASSESSLEVELRANGE, range)    
+    }
+
+
+    @ProxyMethod
+    public def deleteRange( range ) {
+        em.delete(SCHEMA_ASSESSLEVELRANGE, range)    
+    }
+
+
+    @ProxyMethod
+    public def getRanges(bldgassesslevelid){
+        return em.sqlContext.createNamedQuery('bldgrysetting:getRanges')
+                .setParameter('bldgassesslevelid', bldgassesslevelid)
+                .resultList
+    }
+
+
+    void deleteRanges(bldgassesslevelid){
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteRanges')
+                .setParameter('bldgassesslevelid', bldgassesslevelid)
+                .execute()
+    }
+
+
+
+    /*----------------------------------------------------------
+    * AdditionalItem Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public void saveAdditionalItem( item ) {
+        em.validate(SCHEMA_ADDITIONALITEM, item )
+        em.save(SCHEMA_ADDITIONALITEM, item )
+    }
+
+    
+    @ProxyMethod
+    public void deleteAdditionalItem( item ) {
+        em.delete(SCHEMA_ADDITIONALITEM, item )
+    }
+
+
+    @ProxyMethod
+    public def getAdditionalItems( bldgrysettingid ){
+        return em.sqlContext.createNamedQuery('bldgrysetting:getAdditionalItems')
+                .setParameter('bldgrysettingid', bldgrysettingid)
+                .resultList
+    }
+    
+    
+    /*----------------------------------------------------------
+    * BldgType Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public void saveBldgType( bldgtype ) {
+        em.validate(SCHEMA_BLDGTYPE, bldgtype )
+        em.save(SCHEMA_BLDGTYPE, bldgtype )
+    }
+
+    
+    @ProxyMethod
+    public void deleteBldgType( bldgtype ) {
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteBldgKindBuccByTypeId').setParameter('bldgtypeid', bldgtype.objid).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteDepreciationByTypeId').setParameter('bldgtypeid', bldgtype.objid).execute()
+        em.sqlContext.createNamedExecutor('bldgrysetting:deleteStoreyAdjustmentByTypeId').setParameter('bldgtypeid', bldgtype.objid).execute()
+        em.delete(SCHEMA_BLDGTYPE, bldgtype )
+    }
+    
+
+    @ProxyMethod
+    public def getBldgTypes( bldgrysettingid ) {
+        return em.sqlContext.createNamedQuery('bldgrysetting:getBldgTypes')
+                .setParameter('bldgrysettingid', bldgrysettingid)
+                .resultList
+    }
+    
+    /*----------------------------------------------------------
+    * BldgKindBucc Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public void saveBldgKindBucc( bldgkindbucc ) {
+        def entity = EntityUtil.mapToField(bldgkindbucc)
+        em.validate(SCHEMA_BLDGKINDBUCC, entity )
+        em.save(SCHEMA_BLDGKINDBUCC, entity )
+    }
+
+    
+    @ProxyMethod
+    public void deleteBldgKindBucc( bldgkindbucc ) {
+        em.delete(SCHEMA_BLDGKINDBUCC, bldgkindbucc )
+    }
+
+    
+    @ProxyMethod
+    public List getBldgKindBuccs( bldgtypeid ) {
+        return em.sqlContext.createNamedQuery('bldgrysetting:getBldgKindBuccs')
+                    .setParameter('bldgtypeid', bldgtypeid)
+                    .resultList
+    }
+
+
+    /*----------------------------------------------------------
+    * DEPRECIATIONS Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public void saveDepreciation( depreciation ) {
+        em.validate(SCHEMA_DEPRECIATION, depreciation )
+        em.save(SCHEMA_DEPRECIATION, depreciation )
+    }
+
+    
+    @ProxyMethod
+    public void deleteDepreciation( depreciation ) {
+        em.delete(SCHEMA_DEPRECIATION, depreciation )
+    }
+
+    
+    @ProxyMethod
+    public List getDepreciations( bldgtypeid ) {
+        return em.sqlContext.createNamedQuery('bldgrysetting:getDepreciations').setParameter('bldgtypeid', bldgtypeid).resultList
+    }
+
+
+    /*----------------------------------------------------------
+    * STOREYADJUSTMENT Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public void saveStoreyAdjustment( adjustment ) {
+        em.validate(SCHEMA_STOREY, adjustment )
+        em.save(SCHEMA_STOREY, adjustment )
+    }
+
+    
+    @ProxyMethod
+    public void deleteStoreyAdjustment( adjustment ) {
+        em.delete(SCHEMA_STOREY, adjustment )
+    }
+
+    
+    @ProxyMethod
+    public List getStoreyAdjustments( bldgtypeid ) {
+        return em.sqlContext.createNamedQuery('bldgrysetting:getStoreyAdjustments').setParameter('bldgtypeid', bldgtypeid).resultList
+    }
+
+
+
+    /*----------------------------------------------------------
+    * REVISE Methods
+    ----------------------------------------------------------*/
+    @ProxyMethod
+    public Map reviseSetting( newry, copyYear ) {
+        required('Copy Year', copyYear )
+        if( newry <= copyYear ) 
+        throw new Exception('New Revision Year must be greater than copy year.')
+        
+        def setting = em.sqlContext.createNamedQuery('bldgrysetting:getIdByRy').setParameter('ry', copyYear).singleResult
+        if( !setting ) 
+        throw new Exception('Revision Year ' + copyYear  + ' setting is not defined.')
+        
+        //create setting 
+        def oldsettingid    = setting.objid 
+        setting             = em.read( SCHEMA_RYSETTING, [objid:oldsettingid] )
+        setting.previd      = setting.objid 
+        setting.objid       = util.generateId('BS')
+        setting.ry          = newry  
+        
+        setting.predominant = util.toBoolean(setting.predominant, false)
+        setting.depreciatecoreanditemseparately = util.toBoolean(setting.depreciatecoreanditemseparately, false)
+        setting.computedepreciationbasedonschedule = util.toBoolean(setting.computedepreciationbasedonschedule, false)
+        setting.straightdepreciation = util.toBoolean(setting.straightdepreciation, false)
+        setting.calcbldgagebasedondtoccupied = util.toBoolean(setting.calcbldgagebasedondtoccupied, false)
+
+        em.create(SCHEMA_RYSETTING, setting )
+        
+        copyAssessLevels(setting.objid, oldsettingid)
+        copyAdditionalItems(setting.objid, oldsettingid)
+        copyBldgTypes(setting.objid, oldsettingid)
+        
+        rysettingSvc.copyLgus( SETTING_TYPE, setting.objid, oldsettingid)
+        return open(setting)
+    }
+    
+
+    /*----------------------------------------------------------
+    * Support Methods
+    ----------------------------------------------------------*/
+    void buildAppliedToInfo(entity){
+        if (! entity.lgus) {
+            entity.lgus = [[rysettingid:entity.objid,lguid:var.lgu_objid, lguname:var.lgu_name, settingtype:SETTING_TYPE]]
+        }
+        entity.appliedto = entity.lgus.lguname.join(', ')
+    }
+
+
+    void validate( entity ) {
+        if( entity.ry <= 0 ) throw new Exception('Revision Year must be greater than zero.')
+        em.validate(SCHEMA_RYSETTING, entity )
+    }
+    
+    void required( caption, value ) {
+        if( ! value ) throw new Exception( caption + ' is required.' )
+    }    
+
+
+    void loadInitialAssessesLevels(entity){
+        pcSvc.getList([:]).each{
+            saveAssessLevel([
+                objid               : it.objid,
+                bldgrysettingid     : entity.objid,
+                classification_objid : it.objid,
+                classification      : it,
+                code                : it.code,
+                name                : it.name, 
+                fixrate             : false,
+                rate                : 0.0
+            ])
+        }
+    }
+
+
+    void copyAssessLevels(newsettingid, oldsettingid){
+        def assesslevels = getAssessLevels( oldsettingid )
+        assesslevels.each { al ->
+            al.previd = al.objid 
+            al.objid = util.generateId('AL')
+            al.bldgrysettingid = newsettingid
+            al.fixrate = util.toBoolean(al.fixrate, false)
+            saveAssessLevel( al )
+
+            getRanges(al.previd).each{ range ->
+                range.previd = range.objid 
+                range.objid = util.generateId('RA')
+                range.bldgassesslevelid = al.objid 
+                range.bldgrysettingid = newsettingid
+                saveRange( range )
+            }
+        }
+    }
+    
+    void copyAdditionalItems(newsettingid, oldsettingid){
+        def additionalitems  = getAdditionalItems( oldsettingid )
+        additionalitems.each {
+            it.previd = it.objid 
+            it.objid = util.generateId('BA')
+            it.bldgrysettingid = newsettingid
+            saveAdditionalItem( it )
+        }
+    }
+
+    void copyBldgTypes(newsettingid, oldsettingid){
+        def bldgtypes = getBldgTypes( oldsettingid )
+        bldgtypes.each { bt ->
+            bt.previd           = bt.objid 
+            bt.objid            = util.generateId('BA')
+            bt.bldgrysettingid  = newsettingid 
+            saveBldgType( bt )
+            
+            def buccs = getBldgKindBuccs( bt.previd )
+            buccs.each { bucc ->
+                bucc.previd             = bucc.objid 
+                bucc.objid              = util.generateId('BU')
+                bucc.bldgrysettingid    = newsettingid 
+                bucc.bldgtypeid         = bt.objid 
+                saveBldgKindBucc( bucc )
+            }
+
+            def storeyadjustments = getStoreyAdjustments(bt.previd)
+            storeyadjustments.each{
+                it.prev             = it.objid 
+                it.objid            = util.generateId('SA')
+                it.bldgrysettingid  = newsettingid 
+                it.bldgtypeid       = bt.objid 
+                saveStoreyAdjustment(it)
+            }
+
+            def depreciations = getDepreciations(bt.previd)
+            depreciations.each{
+                it.prev             = it.objid 
+                it.objid            = util.generateId('BD')
+                it.bldgrysettingid  = newsettingid 
+                it.bldgtypeid       = bt.objid 
+                saveDepreciation(it)
+            }
+       }
+    }
+
+    
+}

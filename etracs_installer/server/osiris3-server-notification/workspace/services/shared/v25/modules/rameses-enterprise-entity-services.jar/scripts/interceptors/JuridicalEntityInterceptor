@@ -1,0 +1,44 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import java.rmi.server.UID;
+import com.rameses.util.*;
+import com.rameses.io.*;
+import com.rameses.services.extended.*;
+
+class JuridicalEntityInterceptor  {
+
+	@ActiveDB("entity")
+	def	em; 
+
+	@After( pattern="EntityService.getColumns", eval="'juridical'.equalsIgnoreCase(args[0].type)" )
+	public void getColumns(evt) {
+		def cols = evt.result;
+		cols.addAll([
+			[name:'name', caption:'Company Name'], 
+			[name:'address', caption:'Company Address'], 
+			[name:'dtregistered', caption:'Date Registered', width:100, resizable:false, alignment:'center'], 
+			[name:'orgtype', caption:'Org.Type'], 
+			[name:'nature', caption:'Business Nature'], 
+			[name:'tin', caption:'TIN']	
+		]);
+	}
+
+	@After(pattern="EntityService.create",  eval="'juridical'.equalsIgnoreCase(args[0].type)")
+	public void afterCreate( evt ) {
+		def entity = evt.result;
+		em.create(entity,"juridical");
+	}
+
+	@After(pattern="EntityService.update",  eval="'juridical'.equalsIgnoreCase(args[0].type)")
+	public void afterUpdate( evt ) {
+		def entity = evt.result;
+		em.update(entity,"juridical");
+	}
+
+	@After(pattern="EntityService.open",  eval="'juridical'.equalsIgnoreCase(args[0].type)")
+	public void afterOpen( evt ) {
+		def entity = evt.result;
+		entity.putAll ( em.read(entity, 'juridical') );
+	}
+
+}

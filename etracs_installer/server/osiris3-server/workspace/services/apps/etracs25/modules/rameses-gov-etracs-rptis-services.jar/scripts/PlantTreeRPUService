@@ -1,0 +1,198 @@
+import com.rameses.annotations.*
+import com.rameses.util.*
+import com.rameses.services.extended.*
+
+class PlantTreeRPUService
+{
+	@ActiveDB('planttreerpu')
+    def em
+
+    @Env
+    def env
+    
+    @Service('RPTUtil')
+    def util
+
+    @Service('DateService')
+    def dateSvc
+
+    @Service('NumberService')
+    def numberSvc
+    
+    @Service('LandRPUService')
+    def rpuSvc
+
+    @Service('PlantTreeRYSettingLookupService')
+    def ptSettingSvc 
+
+    
+    def SCHEMA_DETAIL  = 'planttreedetail'
+    
+
+    @ProxyMethod
+    public def initPlantTreeRpu(rpu) {
+        def landrpu = rpuSvc.getLandRpuByRealPropertyId(rpu.realpropertyid)
+        if (!landrpu) throw new Exception('Land RPU Reference does not exists.')
+
+        rpu.landrpuid   = landrpu.objid 
+        rpu.productive = 0.0
+        rpu.nonproductive = 0.0
+        rpu.planttrees  = []
+        return rpu 
+    }
+
+    @ProxyMethod
+    public def createPlantTreeRpu( rpu ) {
+        em.create(rpu)
+        savePlantTrees(rpu.planttrees)
+        return rpu
+    }
+
+
+    @ProxyMethod
+    public def updatePlantTreeRpu(rpu) { 
+        em.updateImmediate(rpu)
+        savePlantTrees(rpu.planttrees)
+        removeDeletedItems(rpu)
+        return rpu
+    }
+
+
+    @ProxyMethod
+    public def openPlantTreeRpu( objid ) {
+        def rpu = em.read([objid:objid])
+        if (!rpu) {
+            throw new Exception('Plant/Tree RPU does not exists or has been deleted.')
+        }
+        rpu.planttrees  = getPlantTreeDetails(rpu)
+        return rpu 
+    }
+
+
+    @ProxyMethod
+    public def deletePlantTreeRpu(rpu){
+    	rpu.planttrees.each{ em.delete(it, SCHEMA_DETAIL) }
+        em.delete(rpu)
+    }
+
+
+    @ProxyMethod
+    public void generateNewIds( rpu ) {
+        rpu.planttrees.each{ pt ->
+            pt.objid     = util.generateId('PT')
+            pt.planttreerpuid = rpu.objid 
+        }
+    }
+
+
+    @ProxyMethod
+    public def getClassifications(  ) {
+        return rpuSvc.getClassifications()
+    }
+
+
+    @ProxyMethod
+    public def getExemptionTypes(){
+        return rpuSvc.getExemptionTypes()
+    }
+
+
+    @ProxyMethod
+    public def getPlantTreeRySetting(objid){
+        return ptSettingSvc.lookupPlantTreeRySettingById(objid)
+    }
+
+
+
+	
+    /*-----------------------------------------------------------------
+    * 
+    * ASSESSMENT SUPPORT
+    *
+    *----------------------------------------------------------------- */
+    @ProxyMethod
+    public def calculateAssessment( rpu ) {
+    	def landdetails = rpuSvc.getLandDetails([objid:rpu.landrpuid])
+    	rpu.planttrees.each{pt -> 
+    		calculatePlantTreeAssessment(landdetails, pt)
+    	}	
+    	rpu.productive 		= util.sum(rpu.planttrees, 'productive')
+    	rpu.nonproductive 	= util.sum(rpu.planttrees, 'nonproductive')
+    	rpu.totalbmv 		= util.sum(rpu.planttrees, 'basemarketvalue')
+    	rpu.totalmv 		= util.sum(rpu.planttrees, 'marketvalue')
+    	rpu.totalav 		= util.sum(rpu.planttrees, 'assessedvalue')
+    	return rpu 
+    }
+
+
+    @ProxyMethod
+    public Map calculatePlantTreeAssessment( landdetails, planttree ) {
+
+    	planttree.unitvalue 		= planttree.planttreeunitvalue.unitvalue
+    	planttree.assesslevel		= planttree.actualuse.rate 
+
+		//reset values to 0.0
+        planttree.basemarketvalue  = 0.0
+        planttree.adjustment       = 0.0
+        planttree.marketvalue      = 0.0
+        planttree.assessedvalue    = 0.0
+        
+        //calculate basemarketvalue
+        planttree.basemarketvalue = numberSvc.round( planttree.productive * planttree.unitvalue )
+		
+        //calculate adjustment 
+		planttree.adjustmentrate = 0.0
+		planttree.adjustment 	 = 0.0
+        
+		def rysetting = getRYSetting()
+		if ( util.isTrue(rysetting.adjustplanttree)) {
+			// get total basemarketvalue for agrilands only 
+			def agrilands 		  = landdetails.findAll{ it.actualuse.classification.objid == rysetting.agriculturalid }
+			def totallandbmv 	  = agrilands.basemarketvalue.sum()
+			def totalvalueadj     = 0.0 
+			def totalactualuseadj = 0.0 
+			
+			totallandbmv 		= ( totallandbmv ? totallandbmv : 0.0 )
+			def totallandadj  	= agrilands.landvalueadjustment.sum() + agrilands.actualuseadjustment.sum() 
+
+			if( totallandbmv > 0.0 && totallandadj != 0.0 ){
+				planttree.adjustmentrate = ( totallandadj / totallandbmv ) * 100;
+				planttree.adjustment 	 = numberSvc.round( planttree.basemarketvalue * planttree.adjustmentrate / 100.0 )
+			}
+		}
+        
+		//calculate marketvalue 
+        planttree.marketvalue = numberSvc.round( planttree.basemarketvalue + planttree.adjustment )
+		if (util.isTrue( rysetting.roundadjmarketvalue)) {
+			planttree.marketvalue = numberSvc.roundToTen( planttree.marketvalue )
+		}
+        
+        //calculate assessedvalue
+        planttree.assessedvalue = numberSvc.roundToTen(planttree.marketvalue * planttree.assesslevel / 100.0 )
+        return planttree 
+    }
+
+
+    def getRYSetting(){
+    	return [adjustplanttree:1, agriculturalid:'AGRICULTURAL']
+    }
+
+
+
+    def getPlantTreeDetails(rpu){
+        return em.getPlantTreeDetails(rpu)
+    }
+
+    void savePlantTrees(planttrees){
+    	planttrees.each{pt ->
+    		em.save(pt, SCHEMA_DETAIL)
+    	}
+    }
+
+
+    void removeDeletedItems(rpu){
+    	rpu._planttrees?.each{
+    		em.delete(it,SCHEMA_DETAIL)
+    	}
+    }
+}

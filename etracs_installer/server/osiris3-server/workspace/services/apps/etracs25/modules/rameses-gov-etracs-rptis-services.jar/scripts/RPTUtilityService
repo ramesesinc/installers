@@ -1,0 +1,87 @@
+import com.rameses.annotations.*
+import com.rameses.services.extended.*
+
+class RPTUtilityService
+{
+	@ActiveDB('rptutility')
+	def em
+
+	@ActiveDB('rpu')
+	def rpudb
+
+	@ActiveDB('pin')
+	def pindb 
+    
+	@Service('RPUService')
+	def rpuSvc 
+	
+	@Service('RealPropertyService')
+	def rpSvc 
+
+
+	
+	 //info: faasid, oldpin, tdno, pintype, municipality, barangay, 
+	//section, parcel, suffix, newpin, ssection, sparcel 
+	@ProxyMethod
+	public def updatePin( info ) { 
+		validatePin( info )
+		rpuSvc.checkDuplicateFullPin([objid:info.rpuid, ry: info.ry, fullpin:info.newpin])
+		if( info.rputype == 'land') {
+			def rp = null
+			def rpu = rpuSvc.openRpu( [objid:info.rpuid] )
+			if( rpu ) {
+				rp = rpSvc.open([objid:rpu.realpropertyid])
+				rp.pintype = info.pintype 
+				rp.pin = info.newpin 
+				rp.section = info.ssection
+				rp.barangayid = info.barangay.objid 
+				rp.parcel = info.sparcel 
+				rpSvc.update( rp )
+				pindb.updateBarangayid(rp)
+
+				info.realpropertyid = rp.objid 
+				rpudb.modifyPin(info)
+
+				//update improvements pin 
+				rpudb.getLandImprovementsRpuByRealPropertyId([realpropertyid: rp.objid]).each { 
+					def param = [
+						newpin:info.newpin + '-' + it.suffix,
+						suffix:it.suffix, 
+						rpuid: it.objid 
+					]
+					rpudb.modifyPin(param)
+				}
+			}
+			return rp
+			
+		} else {
+			def landpin = info.barangay.pin + '-' + info.ssection + '-' + info.sparcel
+			def landrp = em.findByPinRy([pin:landpin, ry:info.ry])
+			if (!landrp)
+				throw new Exception('Land Real Property with PIN ' + landpin  + ' does not exist.')
+
+			info.realpropertyid = landrp.objid 
+			em.modifyPin(info)
+			em.updateFaasRealPropertyId(info)
+			return null
+		}
+		// logSvc.log('MODIFY_PIN', 'FAAS', info.faasid  )
+	}
+	
+	void validatePin( info ) {
+        if( info.rputype == 'bldg' && (info.suffix < 1000 || info.suffix > 1999)) {
+            throw new Exception('Building Suffix must be between 1001 and 1999.')
+        }
+        if( info.rputype == 'mach' && (info.suffix < 2000 || info.suffix > 2999)) {
+            throw new Exception('Building Suffix must be between 2001 and 2999.')
+        }
+        if( info.rputype == 'planttree' && (info.suffix < 3000 || info.suffix > 6999)) {
+            throw new Exception('Building Suffix must be between 3001 and 6999.')
+        }
+        if( info.rputype == 'misc' && (info.suffix < 7000 || info.suffix > 7999)) {
+            throw new Exception('Building Suffix must be between 7001 and 7999.')
+        }
+    }
+	
+	
+}

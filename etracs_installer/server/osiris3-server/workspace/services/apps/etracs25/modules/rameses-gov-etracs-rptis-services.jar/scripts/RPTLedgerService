@@ -1,0 +1,320 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import com.rameses.util.*
+import com.rameses.services.extended.*
+
+
+class RPTLedgerService
+{
+    @Env
+    def env
+
+    @ActiveDB('rptbill')
+    def billdb 
+
+    @ActiveDB('rptledger') 
+    def em
+
+    @Service('RPTUtil')
+    def util
+
+    @Service('Var')
+    def var 
+
+    @Service('DateService')
+    def dtSvc
+
+    @Service('NumberService')
+    def numSvc
+
+    @Service('FAASService')
+    def faasSvc 
+
+    @Service('PropertyClassificationService')
+    def pcSvc 
+
+    @Service('RPTBillingService')
+    def billingSvc
+
+
+    def SCHEMA_LEDGER   = 'rptledger'
+    def SCHEMA_FAAS     = 'ledgerfaas'
+    def SCHEMA_BILLITEM     = 'billitem'
+    def SCHEMA_CAPTUREPMT = 'capturepayment'
+
+    def STATE_PENDING   = 'PENDING'
+    def STATE_APPROVED  = 'APPROVED'
+    def STATE_CANCELLED = 'CANCELLED'
+    def STATE_OPEN      = 'OPEN'
+    def STATE_CLOSED    = 'CLOSED'
+
+
+    @ProxyMethod
+    public def openLedger( ledger ) {
+        ledger = em.findById(ledger)
+        if (!ledger) throw new Exception('Ledger does not exists.')
+        ledger.firstqtrpaidontime = util.toBoolean(ledger.firstqtrpaidontime, true)
+        ledger.qtrlypaymentavailed = util.toBoolean(ledger.qtrlypaymentavailed, true)
+        ledger.qtrlypaymentpaidontime = util.toBoolean(ledger.qtrlypaymentpaidontime, true)
+
+        ledger.faases = getLedgerFaases(ledger.objid)
+        return ledger 
+    }
+
+    @ProxyMethod
+    public def createLedger( ledger ) {
+        ledger.advancebill = false;
+        em.create(ledger)
+        ledger.faases.each{ ledgerfaas ->
+            saveLedgerFaas(ledgerfaas)
+        }
+    }
+
+
+    @ProxyMethod
+    public def updateLedger( ledger ) {
+        ledger.advancebill = false;
+        ledger.nextbilldate = null;
+        em.update(ledger)    
+        return ledger 
+    }
+
+    @ProxyMethod
+    public void updateState(ledger){
+        em.updateState(ledger)
+    }
+
+    
+    @ProxyMethod
+    public def saveLedgerFaas(ledgerfaas){
+        em.save(ledgerfaas, SCHEMA_FAAS)
+        return ledgerfaas 
+    }
+
+    @ProxyMethod
+    public def fixLedgerFaas(ledgerfaas){
+        saveLedgerFaas(ledgerfaas)
+        em.resetLastBilledInfo(ledgerfaas)
+        try{
+            billingSvc.generateBillByLedgerId(ledgerfaas.rptledgerid)
+        }
+        catch(e){
+            //
+        }
+    }
+
+    @ProxyMethod
+    public def removeLedgerFaas( ledgerfaas ) {
+        em.delete(ledgerfaas, SCHEMA_FAAS)    
+    }
+
+    @ProxyMethod
+    public def approveLedger( ledger) {
+        ledger = openLedger(ledger)
+        if (ledger.state == STATE_APPROVED )
+            throw new Exception('Ledger has already been approved.')
+        if (ledger.state == STATE_CANCELLED)
+            throw new Exception('Ledger has already been cancelled.')
+
+        def firstfaas = ledger.faases[0]
+        def lastfaas = ledger.faases.last()
+        ledger.state            =  STATE_APPROVED
+        ledger.lastyearpaid     = (firstfaas.fromqtr == 1 ? firstfaas.fromyear - 1 : firstfaas.fromyear)
+        ledger.lastqtrpaid      = (firstfaas.fromqtr == 1 ?  4 : firstfaas.fromqtr - 1)
+        ledger.lastitemyear     = (lastfaas.toyear == 0 ? dtSvc.serverYear  : lastfaas.toyear )
+        ledger.nextbilldate     = null
+        ledger.advancebill      = false;
+        em.update(ledger)
+        
+        ledger.faases.each{  
+            it.state = ledger.state 
+            em.approveLedgerFaas(it)
+        }
+        return ledger;
+    }
+
+    @ProxyMethod
+    public void checkLedgerBalance(faasid){
+        def ledger = em.findApprovedLedgerByFaasId([faasid:faasid])
+        if (!ledger)
+            throw new Exception('Ledger does not exist or has already been deleted.')
+            
+        if (util.isTrue(ledger.taxable)) {
+            if ( ledger.lastyearpaid < dtSvc.serverYear || (ledger.lastyearpaid == dtSvc.serverYear && ledger.lastqtrpaid < 4))
+                throw new Exception('Ledger has not yet been fully paid.')    
+        }
+        else {
+            em.updateLastYearQtrPaid([toyear:dtSvc.serverYear, toqtr:4, rptledgerid:ledger.objid])
+        }
+    }
+
+    @ProxyMethod
+    public def checkLedgerApprovedState(faasid){
+        def ledger = getLedgerByFaasId(faasid)
+        if (ledger.state == STATE_CANCELLED)
+            throw new Exception('Ledger has already been cancelled.')
+        if (ledger.state == STATE_PENDING)
+            throw new Exception('Ledger is still pending.')
+
+    }
+
+    @ProxyMethod
+    public void clearNextBillDateByLedger( ledgerid ) {
+        em.clearNextBillDateByLedger([objid:ledgerid])
+    }
+
+    @ProxyMethod
+    public void clearNextBillDate() {
+        em.clearNextBillDate([:])
+    }
+
+
+    @ProxyMethod
+    public def getLedgerByFaasId( faasid ) {
+        def ledger = em.findLedgerByFaasId([faasid:faasid])
+        if (!ledger) throw new Exception('Ledger does not exist or has already been deleted.')
+        ledger.firstqtrpaidontime = util.toBoolean(ledger.firstqtrpaidontime, false)
+        ledger.qtrlypaymentavailed = util.toBoolean(ledger.qtrlypaymentavailed, false)
+        ledger.qtrlypaymentpaidontime = util.toBoolean(ledger.qtrlypaymentpaidontime, false )
+        return ledger
+    }
+
+
+    @ProxyMethod
+    public def getLedgerFaases(ledgerid){
+        return em.getLedgerFaases([rptledgerid:ledgerid]).each {
+                        it.taxable = util.toBoolean(it.taxable, true)
+                        it.backtax = util.toBoolean(it.backtax, false)
+                        it.reclassed = util.toBoolean(it.reclassed, false)
+                        it.systemcreated = util.toBoolean(it.systemcreated, true)
+                    }
+    }
+
+
+    @ProxyMethod
+    public def getLedgerBillItems(ledgerid){
+        return em.getLedgerBillItems([rptledgerid:ledgerid])
+    }
+
+
+    @ProxyMethod
+    public def getLedgerCredits(ledgerid) {
+        return em.getLedgerCredits([rptledgerid:ledgerid])
+    }
+
+
+    @ProxyMethod
+    public def getTxnTypes(){
+        return faasSvc.getTxnTypes();
+    }
+
+    @ProxyMethod
+    public def getClassifications(){
+        return pcSvc.getClassifications([:])
+    }
+
+
+    @ProxyMethod
+    public def postLedgerFaas( ledgerfaas ) {
+        def ledgerfaases = getLedgerFaases(ledgerfaas.rptledgerid)
+        def latestledgerfaas = ledgerfaases.find{it.toyear == 0}
+        if (latestledgerfaas) {
+            if (latestledgerfaas.fromyear == ledgerfaas.fromyear){
+                latestledgerfaas.state = STATE_CANCELLED 
+                latestledgerfaas.toyear = latestledgerfaas.fromyear 
+            }
+            else {
+                latestledgerfaas.toyear = (ledgerfaas.fromqtr == 1 ? ledgerfaas.fromyear - 1 : ledgerfaas.fromyear)
+            }
+            latestledgerfaas.toqtr = (ledgerfaas.fromqtr == 1 ? 4 : ledgerfaas.fromqtr - 1)
+            saveLedgerFaas(latestledgerfaas)
+        }
+        saveLedgerFaas(ledgerfaas)
+    }
+
+
+    @ProxyMethod
+    public void postCapturedPayment( payment ) {
+        payment.dtposted = dtSvc.serverDate 
+        payment.postedby = env.NAME
+        payment.postedbytitle = env.JOBTITLE
+        def len = payment.paidby.name.length()
+        if (len > 100 ) len = 100
+        payment.paidby_name = payment.paidby.name
+        payment.paidby_address = payment.paidby.address
+        payment.paidby = payment.paidby.name.substring(0,len)
+        em.create(payment, SCHEMA_CAPTUREPMT)
+        em.updateLastYearQtrPaid(payment)    
+        em.resetLastBilledInfo(payment)
+        try{
+            billingSvc.generateBillByLedgerId(payment.rptledgerid)
+        }
+        catch(e){
+            //
+        }
+    }
+
+    @ProxyMethod
+    public def approveMigratedLedger( ledger) {
+        ledger = openLedger(ledger)
+        if (ledger.state == STATE_CANCELLED)
+            throw new Exception('Ledger has already been cancelled.')
+
+        if (ledger.faases){
+            def firstfaas = ledger.faases[0]
+            def lastfaas = ledger.faases.last()
+            ledger.state            =  STATE_APPROVED
+            ledger.lastyearpaid     = (firstfaas.fromqtr == 1 ? firstfaas.fromyear - 1 : firstfaas.fromyear)
+            ledger.lastqtrpaid      = (firstfaas.fromqtr == 1 ?  4 : firstfaas.fromqtr - 1)
+            ledger.lastitemyear     = (lastfaas.toyear == 0 ? dtSvc.serverYear  : lastfaas.toyear )
+            ledger.nextbilldate     = null
+            ledger.advancebill      = false;
+            em.update(ledger)
+            
+            ledger.faases.each{  
+                it.state = ledger.state 
+                em.approveLedgerFaas(it)
+                postLedgerItems(it)
+            }
+        }
+        return ledger;
+    }
+
+
+    @ProxyMethod
+    public void fixLedger( info ) {
+        if (!info.objid) throw new Exception('Ledger ID is required.')
+        if (!info.taxpayer) throw new Exception('Taxpayer is required.')
+
+        info.rptledgerid = info.objid 
+        info.partialledyear = null
+        info.partialledqtr = null 
+
+        def partial = info.partialbasic + info.partialbasicint + info.partialsef + info.partialsefint
+        if ( partial > 0){
+            info.partialledyear = info.lastyearpaid
+            info.partialledqtr =  info.lastqtrpaid
+        }
+        em.fixLedgerInfo(info)
+        try{
+            billingSvc.generateBillByLedgerId(info.rptledgerid)
+        }
+        catch(e){
+            //
+        }
+    }
+
+    void validateFixPartial(info, item){
+        if (info.basic > item.basic )
+            throw new Exception('Partial Basic must not exceed ' + numSvc.format('#,##0.00',item.basic) + '.')
+        if (info.basicint > item.basicint )
+            throw new Exception('Partial Basic Penalty must not exceed ' + numSvc.format('#,##0.00',item.basicint) + '.')
+
+        if (info.sef > item.sef )
+            throw new Exception('Partial SEF must not exceed ' + numSvc.format('#,##0.00',item.sef) + '.')
+        if (info.sefint > item.sefint )
+            throw new Exception('Partial SEF Penalty must not exceed ' + numSvc.format('#,##0.00',item.sefint) + '.')
+    }
+
+}
+

@@ -1,0 +1,30 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import com.rameses.util.*;
+import com.rameses.services.extended.*;
+
+
+class ExaminationService
+{
+	@ActiveDB('rpt_examination')
+    def em
+
+
+    @ProxyMethod
+    public def findFindingById(objid){
+        return em.findById([objid:objid])
+    }
+
+
+    @ProxyMethod
+    public def save( finding ) {
+        if (finding.isnew == true) {
+            em.insertFinding(finding)
+        }
+        else{
+            em.updateFinding(finding)
+        }
+    }
+
+}
+

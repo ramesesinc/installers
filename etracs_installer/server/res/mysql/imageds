@@ -1,0 +1,5 @@
+dialect=mysql
+driverClass=com.mysql.jdbc.Driver
+url=jdbc:mysql://@dbhost/mysql
+user=@dbuser
+pwd=@dbpwd

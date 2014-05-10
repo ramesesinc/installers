@@ -1,0 +1,40 @@
+import com.rameses.annotations.*;
+import com.rameses.common.*;
+import com.rameses.services.extended.*
+
+class BarangayLookupService{
+	
+	@ActiveDB('barangay')
+	def em
+	
+
+	@ProxyMethod 
+	public def getColumns( params ) {
+		return [
+			[name:'name', caption:'Name'],  
+			[name:'indexno', caption:'Index-No'],
+			[name:'pin', caption:'PIN'] 
+		];
+	}
+
+
+	@ProxyMethod
+	public def getList( params ) {
+		params._pagingKeys = 'b.objid'
+		params.searchtext = (params.searchtext ? params.searchtext : '') + '%'
+		return em.getList(params)
+	}
+
+
+	@ProxyMethod
+	public def getById( objid ) {
+		return em.findById([objid:objid])
+	}	
+
+
+	@ProxyMethod
+	public def getListByParentid( parentid ) {
+		if (!parentid) parentid = '%'
+		return em.getListByParentid([parentid:parentid])
+	}
+}

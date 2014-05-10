@@ -1,0 +1,77 @@
+import com.rameses.annotations.*
+import com.rameses.common.*;
+import com.rameses.services.extended.*;
+
+class ConsolidationInterceptor
+{
+	@ActiveDB('consolidation')
+	def em;
+
+	@Service('ConsolidationService')
+	def svc
+
+	@Service('RPTRequirementService')
+	def reqSvc
+
+	@Service('ExaminationService')
+	def examinationSvc 	
+
+
+	@Before(pattern="ConsolidationService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('receive')}", index=10) 
+	public void validateReceiveInfo( evt ) {
+		def consolidation = evt.args[0]
+		reqSvc.checkCompliance(consolidation.objid)
+	}
+
+	@Before(pattern="ConsolidationService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('forexamination')}", index=10) 
+	public void validateExaminationInfo( evt ) {
+		def consolidation = evt.args[0]
+		def finding = examinationSvc.findFindingById(consolidation.objid)
+		if (!finding)
+			throw new Exception('Examination Finding is required.')
+	}
+
+
+	@Before(pattern="ConsolidationService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('fortaxmapping')}", index=10) 
+	public void validateTaxmappingInfo( evt ) {
+		def consolidation = evt.args[0]
+
+		//check consolidated lands count, at least 2
+		def lands = em.getConsolidatedLands([consolidationid:consolidation.objid])
+		if (lands.size() < 2)
+			throw new Exception('Consolidation requires at least two (2) Consolidated Lands.')
+
+
+		//check all affected rpus are assigned with new PIN
+		def nopinRpus = em.getAffectedRpusWithNoPin(consolidation)
+		if (nopinRpus)
+			throw new Exception('Affected RPU with TD No. ' + nopinRpus[0].prevtdno + ' is not assigned with a new PIN.');
+
+	}
+
+
+	@Before(pattern="ConsolidationService.validateSubmit", eval="#{args[0].taskaction?.equalsIgnoreCase('forappraisal')}", index=15) 
+	public void validateAppraisalInfo( evt ) {
+		def consolidation = evt.args[0]
+		consolidation = svc.openConsolidation(consolidation.objid)
+
+		if (! consolidation.taxpayer.objid )
+			throw new Exception('Taxpayer is required.')
+
+		if (! consolidation.owner.name)
+			throw new Exception('Owner Name is required.')
+
+		if (! consolidation.owner.address)
+			throw new Exception('Owner Address is required.')
+
+		if (! consolidation.newrpuid )
+			throw new Exception('Consolidation RPU is not yet appraised.')
+
+		if (! consolidation.memoranda )
+			throw new Exception('Consolidation RPU memoranda is required.')
+
+		svc.validate(consolidation)
+	}	
+
+}
+

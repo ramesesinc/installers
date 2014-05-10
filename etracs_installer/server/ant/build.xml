@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="etracs25_server_setup" default="init-installation" basedir=".">
+    <import file="../build.xml"/>
+
+    <target name="init-installation">
+        <taskdef name="groovy" classname="org.codehaus.groovy.ant.Groovy">
+            <classpath> 
+                <pathelement location="lib/groovy-all-1.5.5.jar"/> 
+            </classpath> 
+        </taskdef> 
+        <antcall target="install"/> 
+    </target> 
+</project>

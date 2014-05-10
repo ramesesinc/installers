@@ -1,0 +1,45 @@
+import com.rameses.annotations.*
+import com.rameses.eserver.*;
+import com.rameses.common.*;
+
+class RPTReceiptInterceptor
+{
+	@PersistenceContext('rpt')
+	def em
+
+	@Service('RPTReceiptService')
+	def svc 
+
+	@After(pattern="CashReceiptService.open", eval="#{result.formno=='56'}") 
+	public void interceptOpenReceipt( evt ) {
+		def receipt = evt.result
+		svc.open(receipt)
+		if (!receipt._items)
+			receipt._items = []
+		receipt._items = svc.getItemsForPrinting(receipt)
+		receipt.itemcount = receipt._items.size()
+	}
+
+
+	@Before(pattern="CashReceiptService.post", eval="#{args[0].formno=='56' && args[0].txntype == 'rptonline'}") 
+	public void interceptBeforePostReceipt( evt ) {
+		def receipt = evt.args[0]
+		receipt.items = svc.getSummarizedCashReceiptItems(receipt); 
+	}
+
+	@After(pattern="CashReceiptService.post", eval="#{result.formno=='56' && args[0].txntype == 'rptonline'}") 
+	public void interceptPostReceipt( evt ) {
+		def receipt = evt.result
+		svc.createReceipt(receipt)
+		receipt._items = svc.getItemsForPrinting(receipt)
+		receipt.itemcount = receipt._items.size()
+		receipt.rptitems = null
+	}
+
+	@After(pattern="CashReceiptVoidService.post", eval="#{result.receipt.formno=='56' && args[0].receipt.txntype == 'rptonline'}") 
+	public void interceptVoidReceipt( evt ) {
+		svc.voidReceipt(evt.result.receipt)
+	}
+
+}
+

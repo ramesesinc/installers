@@ -1,0 +1,108 @@
+import com.rameses.annotations.*
+import com.rameses.eserver.*;
+import com.rameses.common.*;
+
+class FaasTaskInterceptor
+{
+	@Service('FAASService')
+	def faasSvc
+
+	@Service('RPTTaskService')
+	def taskSvc
+
+	@Service('RPTTrackingService')
+    def trackingSvc
+
+    @Service('RPTWorkflowService')
+    def workflowSvc 
+
+    @Service(value="GroupNotificationService", connection="notification_proxy")
+    def notificationSvc
+
+
+	@Env
+	def env 
+
+
+	@Before(pattern="FAASService.deleteFaas") 
+	public void deleteFaas( evt ) {
+		def faas = evt.args[0]
+		taskSvc.delete(faas)
+	}
+
+
+	def createTask(faas, wf){
+		def refno = faas.trackingno
+		if (!refno && faas.tdno )
+			refno = faas.tdno 
+		else 
+			refno = faas.utdno 
+		return [
+			objid		: faas.objid,
+			refno		: refno,
+			docname 	: 'FAAS',
+			filetype	: 'faasonline',
+			action 		: wf.tostate,
+			status		: wf.message,
+			signatory 	: wf.signatory,
+			workflowid  : wf.workflowid,
+		]
+	}
+
+
+	@After(pattern="GeneralRevisionService.initOnlineGeneralRevision") 
+	public void handleGRStartWorkflow( evt ) {
+		handleStartWorkflow(evt)
+	}
+
+
+
+	@After(pattern="FAASService.(initOnlineTransaction|initNewDiscovery)") 
+	public void handleStartWorkflow( evt ) {
+		def faas = evt.result
+		def startwf = workflowSvc.findStart([docname:'FAAS', appliedto:faas.txntype.objid, fromstate:null])
+		def task = createTask(faas, startwf)
+		task = taskSvc.createTask(task)
+		taskSvc.assignTask(task)
+		updateFaasSignatoryFromTask(faas, task)
+	}
+
+
+	@After(pattern="FAASService.approveFaas") 
+	public void approveFaas( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+		trackingSvc.updateMessage([objid:evt.result.objid, msg:'FAAS is already approved.'])
+	}
+
+	@After(pattern="FAASService.disapproveFaas") 
+	public void disapproveFaas( evt ) {
+		taskSvc.closeTask([objid:evt.result.objid])
+	}
+
+
+	@After(pattern="RPTTaskService.(createNextUserTask|assignTaskToMe)", eval="#{result.filetype == 'faasonline'}") 
+	public void updateSignatoryInfo( evt ) {
+		def task = evt.result 
+		def faas = faasSvc.openFaas([objid:task.objid])
+		updateFaasSignatoryFromTask(faas, task)
+		try{
+			notificationSvc?.removeMessage([objid:faas.objid])
+		}
+		catch(e){
+			println 'Notification Error ==================================================='
+			println e.message
+		}
+	}
+
+	void updateFaasSignatoryFromTask(faas, task){
+		if (! faas[task.signatory]) 
+			faas[task.signatory] = [:]
+
+		faas[task.signatory].dtsigned = task.startdate 
+		faas[task.signatory].name = task.assignedto.name 
+		faas[task.signatory].title = task.assignedto.title
+		faasSvc.updateFaas(faas) 
+	}
+}
+
+

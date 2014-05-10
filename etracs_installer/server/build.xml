@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="etracs25" default="install" basedir=".">
+
+    <target name="install" depends="init, create-db, copy-osiris3-server, update-settings, cleanup-temp" />
+    
+    <!--
+    ====================================================
+    INITIALIZATION 
+    ====================================================
+    -->
+    <target name="init-check" >
+        <fail unless="lgu.name">Must set lguname</fail>
+        <fail unless="version.no">Must set versionno</fail>
+        <fail unless="target.dir">Must set target.dir</fail>
+        <fail unless="app.host">Must set app.host</fail>
+        <fail unless="db.name">Must set etracs.db.name</fail>
+        <fail unless="db.host">Must set etracs.db.host</fail>
+        <fail unless="db.user">Must set etracs.db.user</fail>
+        <fail unless="db.pwd">Must set etracs.db.pwd</fail>
+    </target>
+    
+    <target name="init-private" depends="pre-init">
+        <property file="../etracs25.properties"/>
+    </target>
+
+    <target name="pre-init" ></target>
+        
+    <target name="init" depends="pre-init, init-private, init-check">
+        <property name="db.resource.dir" value="${temp.dir}/res/${db.connection}" />
+
+        <property name="osiris3.dir" value="${target.dir}/osiris3-server" />
+        <property name="ws.services.dir" value="${osiris3.dir}/workspace/services" />
+        <property name="ws.datasources.dir" value="${ws.services.dir}/datasources" />
+        <property name="ws.etracs25.dir" value="${ws.services.dir}/apps/etracs25" />
+
+        <property name="ws.web.dir" value="${osiris3.dir}/workspace/web" />
+        <property name="ws.web.modules.dir" value="${ws.web.dir}/resources/downloads/modules" />
+        <property name="downloads.dir" value="${ws.web.dir}/resources/downloads" />
+    </target>
+    
+    
+    
+    <!--
+    ====================================================
+    CREATE DB 
+    ====================================================
+    -->
+    <target name="init-create-db">
+        <!-- DELETE TEMP DIR -->
+        <delete dir="${temp.dir}/temp" />
+
+        <!-- SETUP CREATEDB BATCH FILE -->
+        <copy file="${db.resource.dir}/createdb.bat" todir="${temp.dir}/temp"/>
+        <replace file="${temp.dir}/temp/createdb.bat" token="@apphost" value="${db.host}"/>
+        <replace file="${temp.dir}/temp/createdb.bat" token="@dbuser" value="${db.user}"/>
+        <replace file="${temp.dir}/temp/createdb.bat" token="@dbpwd" value="${db.pwd}"/>
+
+        <!-- set etracsdb script -->
+        <copy file="${db.resource.dir}/etracs25db.sql" todir="${temp.dir}/temp"/>
+        <replace file="${temp.dir}/temp/etracs25db.sql" token="@dbname" value="${db.name}"/>
+        <replace file="${temp.dir}/temp/etracs25db.sql" token="@dbdatadir" value="${db.data.dir}"/>
+
+        <!-- set notificationdb script -->
+        <copy file="${db.resource.dir}/notificationdb.sql" todir="${temp.dir}/temp"/>
+        <replace file="${temp.dir}/temp/notificationdb.sql" token="@dbdatadir" value="${db.data.dir}"  />
+
+        <!-- set populate tables script -->
+        <copy file="${db.resource.dir}/populate-tables.sql" todir="${temp.dir}/temp"/>
+        <replace file="${temp.dir}/temp/populate-tables.sql" token="@dbname" value="${db.name}"  />
+
+        <!-- set updates tables script -->
+        <copy file="${db.resource.dir}/update-tables.sql" todir="${temp.dir}/temp"/>
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@dbname" value="${db.name}"  />        
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@lgupin" value="${lgu.pin}" />        
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@lgutype" value="${lgu.type}" />        
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@lguname" value="${lgu.name}" />        
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@lguindexno" value="${lgu.indexno}" />        
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@provincepin" value="${province.pin}" />        
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@provinceindexno" value="${province.indexno}" />        
+        <replace file="${temp.dir}/temp/update-tables.sql" token="@provincename" value="${province.name}" />        
+
+        <!-- set the common scripts -->
+        <echo file="${temp.dir}/temp/extended.sql"><![CDATA[USE ${db.name};]]></echo>
+        <groovy>
+        <![CDATA[
+            def tempdir = properties['temp.dir'];
+            def tempdirtmp = tempdir + '/temp';
+            def lgutype = properties['lgu.type'].toLowerCase(); 
+            if (lgutype == 'province' || lgutype == 'municipality') { 
+                ant.antcall(target: '-insert-orgclass-province-municipality'); 
+
+            } else if (lgutype == 'city') {
+                ant.antcall(target: '-insert-orgclass-city'); 
+
+            } else {
+                ant.antcall(target: '-insert-orgclass-default'); 
+
+            }
+
+            ant.antcall(target: '-insert-lgu-info'); 
+        ]]> 
+        </groovy>
+    </target> 
+
+    <target name="-insert-orgclass-province-municipality"> 
+        <echo file="${temp.dir}/temp/extended.sql" append="true">
+        <![CDATA[ 
+INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('PROVINCE', 'PROVINCE', NULL);
+INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('MUNICIPALITY', 'MUNICIPALITY', 'PROVINCE'); 
+INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('BARANGAY', 'BARANGAY', 'MUNICIPALITY'); 
+
+        ]]> 
+        </echo> 
+        <groovy>
+        <![CDATA[
+            def tempdir = properties['temp.dir'];
+            def tempdirtmp = tempdir + '/temp';        
+            def provindexno = properties['province.indexno']; 
+            def provname = properties['province.name'];  
+            def provpin = properties['province.pin']; 
+            def lgutype = properties['lgu.type'].toLowerCase(); 
+            if (lgutype == 'municipality') { 
+                def sql = """ 
+
+INSERT INTO sys_org 
+    (objid, `name`, orgclass, parent_objid, parent_orgclass, `code`, root) 
+VALUES 
+    ('${provpin}', '${provname}', 'PROVINCE', NULL, NULL, '${provpin}', 0); 
+
+                """; 
+
+                ant.echo(file: tempdirtmp+'/extended.sql', append:true, message: sql);  
+            } 
+
+            def lguname = properties['lgu.name'];
+            def lgupin = properties['lgu.pin'];
+            def sql = """ 
+
+INSERT INTO sys_org 
+    (objid, `name`, orgclass, parent_objid, parent_orgclass, `code`, root) 
+VALUES 
+    ('${lgupin}', '${lguname}', '${lgutype.toUpperCase()}', ${provpin? "'"+provpin+"'": null}, ${provpin? "'PROVINCE'": null}, '${lgupin}', 1); 
+
+            """;
+
+            ant.echo(file: tempdirtmp+'/extended.sql', append:true, message: sql);  
+        ]]> 
+        </groovy>               
+    </target> 
+
+    <target name="-insert-orgclass-city"> 
+        <echo file="${temp.dir}/temp/extended.sql" append="true">
+        <![CDATA[ 
+INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('CITY', 'CITY', NULL); 
+INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('DISTRICT', 'DISTRICT', 'CITY'); 
+INSERT INTO sys_orgclass (name, title, parentclass) VALUES ('BARANGAY', 'BARANGAY', 'DISTRICT'); 
+
+        ]]> 
+        </echo>   
+        <groovy>
+        <![CDATA[
+            def tempdir = properties['temp.dir'];
+            def tempdirtmp = tempdir + '/temp';        
+            def lgutype = properties['lgu.type'].toLowerCase(); 
+            def lguname = properties['lgu.name'];
+            def lgupin = properties['lgu.pin'];
+            def sql = """ 
+
+INSERT INTO sys_org 
+    (objid, `name`, orgclass, parent_objid, parent_orgclass, `code`, root) 
+VALUES 
+    ('${lgupin}', '${lguname}', '${lgutype.toUpperCase()}', NULL, NULL, '${lgupin}', 1); 
+
+            """;
+
+            ant.echo(file: tempdirtmp+'/extended.sql', append:true, message: sql);  
+        ]]> 
+        </groovy>              
+    </target>  
+
+    <target name="-insert-orgclass-default"> 
+        <groovy>
+        <![CDATA[
+            def tempdir = properties['temp.dir'];
+            def tempdirtmp = tempdir + '/temp';        
+            def lgutype = properties['lgu.type'].toUpperCase(); 
+            def sql = "INSERT INTO sys_orgclass (name, title) VALUES ('${lgutype}', '${lgutype}'); "; 
+            ant.echo(file: tempdirtmp+'/extended.sql', append:true, message: sql);  
+
+            def lguname = properties['lgu.name'];
+            def lgupin = properties['lgu.pin'];
+            def sql = """ 
+
+INSERT INTO sys_org 
+    (objid, `name`, orgclass, parent_objid, parent_orgclass, `code`, root) 
+VALUES 
+    ('${lgupin}', '${lguname}', '${lgutype}', NULL, NULL, '${lgupin}', 1); 
+
+            """;
+
+            ant.echo(file: tempdirtmp+'/extended.sql', append:true, message: sql);              
+        ]]>                 
+        </groovy>
+    </target> 
+
+    <target name="-insert-lgu-info"> 
+        <groovy>
+        <![CDATA[
+            def tempdir = properties['temp.dir'];
+            def tempdirtmp = tempdir + '/temp';        
+            def lgutype = properties['lgu.type'].toLowerCase(); 
+
+            def lguindexno = properties['lgu.indexno'];
+            def lguname = properties['lgu.name'];
+            def lgupin = properties['lgu.pin'];
+            def sql = """ 
+
+INSERT INTO ${lgutype} 
+    (objid, state, indexno, pin, name) 
+VALUES 
+    ('${lgupin}', 'DRAFT', '${lguindexno}', '${lgupin}', '${lguname}');  
+
+            """;
+
+            ant.echo(file: tempdirtmp+'/extended.sql', append:true, message: sql);  
+
+            if (lgutype == 'municipality') { 
+                def provindexno = properties['province.indexno']; 
+                def provname = properties['province.name']; 
+                def provpin = properties['province.pin'];                 
+                sql = """ 
+
+INSERT INTO province 
+    (objid, state, indexno, pin, name) 
+VALUES 
+    ('${provpin}', 'DRAFT', '${provindexno}', '${provpin}', '${provname}');  
+
+                """;
+
+                ant.echo(file: tempdirtmp+'/extended.sql', append:true, message: sql);  
+            } 
+        ]]> 
+        </groovy>
+    </target>     
+    
+    <target name="check-db-dir-exists">
+        <condition property="db.dir.exists">
+            <available file="${db.data.dir}" type="dir" />
+        </condition>
+    </target>
+
+    <target name="create-db-dir" depends="check-db-dir-exists" unless="db.dir.exists">
+        <mkdir dir="${db.data.dir}"/>
+    </target>
+
+    <target name="create-db" depends="init-create-db, create-db-dir">
+        <echo file="${temp.dir}/temp/extended.bat"> 
+        <![CDATA[mysql -h ${db.host} -u ${db.user} -p${db.pwd} < extended.sql]]>  
+        </echo>
+	    <exec executable="cmd" dir="${temp.dir}/temp">
+            <arg value="/c"/>
+            <arg value="createdb.bat"/>
+        </exec>
+        <exec executable="cmd" dir="${temp.dir}/temp">
+            <arg value="/c"/>
+            <arg value="extended.bat"/>
+        </exec> 
+	</target>
+
+
+    <!--
+    ====================================================
+    COPY-OSIRIS3-SERVER
+    ====================================================
+    -->
+    <target name="cleanup" >
+        <delete dir="${osiris3.dir}"/>
+        <delete dir="${target.dir}/osiris3-server-notification"/>
+    </target>
+
+    <target name="copy-osiris3-server" depends="cleanup">
+        <copy todir="${osiris3.dir}">
+            <fileset dir="${temp.dir}/osiris3-server"/>
+        </copy>
+        <replace file="${osiris3.dir}/bin/run.bat"      token="@javahome" value="${java.home.dir}"/> 
+        <replace file="${osiris3.dir}/bin/shutdown.bat" token="@javahome" value="${java.home.dir}"/> 
+
+        <copy todir="${target.dir}/osiris3-server-notification">
+            <fileset dir="${temp.dir}/osiris3-server-notification"/>
+        </copy>
+        <replace file="${target.dir}/osiris3-server-notification/bin/run.bat" token="@javahome" value="${java.home.dir}"/> 
+        <replace file="${target.dir}/osiris3-server-notification/bin/shutdown.bat" token="@javahome" value="${java.home.dir}"/> 
+    </target>
+
+    <!--
+    ====================================================
+    UPDATE SETTINGS
+    ====================================================
+    -->
+     <target name="update-settings">
+     	<!-- SERVER -->
+        <replace file="${osiris3.dir}/bin/server.conf" token="@osirisdir" value="${osiris3.dir}"/>
+     	<replace file="${target.dir}/osiris3-server-notification/bin/server.conf" token="@targetdir" value="${target.dir}"/>
+     	
+     	<!-- DATASOURCES -->
+        <groovy>
+        <![CDATA[
+            def dbresdir = properties['db.resource.dir'];
+            ant.loadfile(srcfile: dbresdir+'/appds', property:'appds_content', failonerror:false); 
+            ant.loadfile(srcfile: dbresdir+'/imageds', property:'imageds_content', failonerror:false); 
+
+            def appds_content = properties['appds_content']; 
+            if (!appds_content) appds_content = '';            
+            appds_content = appds_content.replaceAll('@dbhost', properties['db.host']); 
+            appds_content = appds_content.replaceAll('@dbname', properties['db.name']); 
+            appds_content = appds_content.replaceAll('@dbuser', properties['db.user']); 
+            appds_content = appds_content.replaceAll('@dbpwd', properties['db.pwd']); 
+
+            def imagedbhost = properties['image.db.host'];
+            def imagedbname = properties['image.db.name'];
+            def imagedbuser = properties['image.db.user'];
+            def imagedbpwd = properties['image.db.pwd'];
+            def imageds_content = properties['imageds_content']; 
+            if (!imageds_content) imageds_content = '';            
+            imageds_content = imageds_content.replaceAll('@dbhost', imagedbhost? imagedbhost: ''); 
+            imageds_content = imageds_content.replaceAll('@dbname', imagedbname? imagedbname: ''); 
+            imageds_content = imageds_content.replaceAll('@dbuser', imagedbuser? imagedbuser: ''); 
+            imageds_content = imageds_content.replaceAll('@dbpwd',  imagedbpwd? imagedbpwd: '');             
+
+            def dsdir = properties['target.dir']+'/osiris3-server/workspace/services/datasources';
+            ant.echo(file: dsdir+'/localds', message: appds_content); 
+            ant.echo(file: dsdir+'/etracsds', message: appds_content);
+            ant.echo(file: dsdir+'/imageds', message: imageds_content);
+
+            dsdir = properties['target.dir']+'/osiris3-server-notification/workspace/services/datasources'; 
+            ant.echo(file: dsdir+'/notificationds', message: appds_content); 
+        ]]> 
+        </groovy>        
+
+        <!-- ADAPTERS -->
+        <replace file="${ws.etracs25.dir}/adapters/admin" token="@etracsdbname" value="${db.name}" />
+        <replace file="${ws.etracs25.dir}/adapters/entity" token="@etracsdbname" value="${db.name}" />
+        <replace file="${ws.etracs25.dir}/adapters/main" token="@etracsdbname" value="${db.name}" />
+        <replace file="${ws.etracs25.dir}/adapters/rpt" token="@etracsdbname" value="${db.name}" />
+        <replace file="${ws.etracs25.dir}/adapters/system" token="@etracsdbname" value="${db.name}" />
+        <replace file="${ws.etracs25.dir}/adapters/image" token="@imagedbname" value="${image.db.name}" />
+
+        <!-- ANUBIS HOST -->
+        <replace file="${ws.web.dir}/anubis.hosts" token="@osirisdir" value="${osiris3.dir}" />
+        <replace file="${target.dir}/osiris3-server-notification/workspace/web/anubis.hosts" token="@targetdir" value="${target.dir}" />
+        
+        <!-- UPDATES.XML -->
+        <replace file="${ws.web.modules.dir}/updates.xml" token="@versionno" value="${version.no}" />
+        <replace file="${ws.web.modules.dir}/updates.xml" token="@lguname" value="${lgu.name}" />
+        <replace file="${ws.web.modules.dir}/updates.xml" token="@apphost" value="${app.host}" />
+        <replace file="${ws.web.modules.dir}/updates.xml" token="@imagehost" value="${image.host}" />
+    </target>
+	
+    <target name="cleanup-temp">
+        <delete dir="${temp.dir}/temp"/>
+    </target>
+</project>

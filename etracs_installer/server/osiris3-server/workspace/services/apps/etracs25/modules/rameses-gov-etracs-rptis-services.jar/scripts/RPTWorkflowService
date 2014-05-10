@@ -1,0 +1,83 @@
+import com.rameses.annotations.*
+import com.rameses.common.*
+import com.rameses.services.extended.*
+
+class RPTWorkflowService 
+{
+    @ActiveDB('rptworkflow')
+    def workflowDb
+
+    @Env 
+    def env 
+
+    @Service('RPTUtil')
+    def util 
+
+
+    @ProxyMethod
+    public def transition( params ) {
+        util.required('docname', params.docname)
+        util.required('appliedto', params.appliedto)
+        util.required('fromstate', params.fromstate)
+        util.required('refno', params.refno)
+
+
+        def faas = evt.result 
+        def wf = findNext(params)
+        def task = createTask(faas, wf)
+        taskSvc.createTask(task)
+        faas.taskaction = task.action
+
+        //notify group
+        def msg = [
+            objid     : faas.objid,
+            senderid  : task.createdby.objid,
+            sender    : task.createdby.name,
+            groupid   : wf.tostate,
+            message   : 'FAAS No. ' + faas.trackingno + '    (' + wf.tostate + ')',
+            filetype  : 'faasonline',
+        ]
+        notificationSvc.addMessage(msg)
+    }
+
+
+    @ProxyMethod
+    public def findStart( params ) {
+        util.required('appliedto', params.appliedto)
+
+        initParams(params)
+        def startwf = workflowDb.findStart(params)
+        if (!startwf) throw new Exception('Start workflow is not defined.')
+        startwf.message = ExpressionResolver.instance.evalString(startwf.message, params)
+        return startwf
+    }
+
+    @ProxyMethod
+    public def findNext( params ) {
+        util.required('appliedto', params.appliedto)
+        util.required('fromstate', params.fromstate)
+
+        initParams(params)
+        def wf = workflowDb.findNext(params)
+        if (!wf) throw new Exception('Next workflow process is not defined.')
+        wf.message = ExpressionResolver.instance.evalString(wf.message, params)
+        return wf
+    }
+
+    @ProxyMethod
+    public def findNextByWorkflowId( params ) {
+        util.required('workflowid', params.workflowid)
+        util.required('fromstate', params.fromstate)
+
+        initParams(params)
+        def wf = workflowDb.findNextByWorkflowId(params)
+        if (!wf) throw new Exception('Next workflow process is not defined.')
+        wf.message = ExpressionResolver.instance.evalString(wf.message, params)
+        return wf
+    }
+
+    void initParams(params){
+        params.appliedto = '%' + params.appliedto + '%'
+        params.name = env.FULLNAME
+    }
+}

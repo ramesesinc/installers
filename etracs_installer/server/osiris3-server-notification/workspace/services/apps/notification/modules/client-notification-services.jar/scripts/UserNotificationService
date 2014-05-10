@@ -1,0 +1,96 @@
+import com.rameses.annotations.*;
+import com.rameses.util.*;
+
+class UserNotificationService 
+{   
+    @ActiveDB('user_notification')
+    def em;
+
+    @Service('DateService')
+    def dateSvc;
+
+    @Service 
+    def self;
+
+    @Env
+    def env;
+
+    @ProxyMethod 
+    public def addMessage( data ) { 
+        data.notificationid   = 'MSG' + new java.rmi.server.UID(); 
+        data.dtfiled = dateSvc.serverDate; 
+        if (!data.senderid) data.senderid = env.USERID; 
+
+        em.create( data, 'user'); 
+        self.notify(data); 
+        return data;  
+    } 
+
+    @ProxyMethod 
+    public void removeMessage( params ) { 
+        def data = null; 
+        if (params.notificationid) { 
+            data = em.findByNotificationid( params ); 
+        } else { 
+            data = em.findByPrimary( params ); 
+        } 
+
+        if (!data) return; 
+
+        em.delete(data, 'user'); 
+        self.notifyRemove(data); 
+    } 
+
+    @ProxyMethod 
+    public def getList( params ) {
+        return em.getList( params ); 
+    } 
+
+    @ProxyMethod 
+    public void getNotified( params ) {
+        def list = getList(params); 
+        self.notifyMessages(list); 
+    }
+
+    private void resolveMessage( data ) {
+        if (data?.data) {
+            char[] chars = data.data.toString().toCharArray();
+            byte[] bytes = new Base64CoderImpl().decode(chars);
+            data.rawdata = new com.rameses.io.IOStream().readObject(bytes); 
+        } 
+    }  
+
+
+
+
+    @XConnection('ws_sender')
+    def wssender;
+
+    @Async
+    @ProxyMethod(local=true)
+    public void notify( data ) {
+        data.channel = 'user'; 
+        data.status  = 'PENDING'; 
+        resolveMessage( data );
+        wssender.send( data ); 
+    }     
+
+    @Async
+    @ProxyMethod(local=true)
+    public void notifyRemove( data ) {
+        data.channel = 'user'; 
+        data.status  = 'REMOVED'; 
+        wssender.send( data ); 
+    } 
+
+    @Async
+    @ProxyMethod(local=true)
+    public void notifyMessages( list ) {
+        list?.each {
+            it.channel = 'user'; 
+            it.status  = 'PENDING'; 
+            resolveMessage( it );
+            wssender.send( it ); 
+        } 
+    } 
+}
