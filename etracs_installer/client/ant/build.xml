@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="etracs25_client_setup" default="install" basedir=".">
+     <target name="install">
+        <property file="../temp.properties"/>
+		
+        <copy file="${temp.dir}/res/platform.conf" todir="${temp.dir}/temp"/> 
+        <replace file="${temp.dir}/temp/platform.conf" token="@javahome" value="${java.home.dir}"/>  
+        <copy file="${temp.dir}/temp/platform.conf" todir="${app.dir}" overwrite="true"/> 
+        <!--delete dir="${temp.dir}/temp" failonerror="false"/-->
+    </target>
+</project>
