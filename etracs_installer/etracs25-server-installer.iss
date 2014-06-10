@@ -119,7 +119,34 @@ begin
   // if the JRE version was read, check if it's at least the minimum one 
   if Result then
     Result := CompareStr(JREVersion, '{#MinJRE}') = 0;
-end;      
+end;    
+
+function DoTestConnection: Boolean;
+var 
+  Text, Path, Output, Str, Message: String;
+  ResultCode: Integer;
+begin
+  Result := True;
+  if (Connection = 'mysql') then
+  begin
+    Text := 'mysqladmin status -h ' + Host + ' -u ' + Username + ' -p' + Password + ' > output.txt';
+  end;
+
+  if (Trim(Text) <> nil) then
+  begin
+    Path := ExpandConstant('{tmp}\cmd.bat');
+    SaveStringToFile(Path, Text, False); 
+    Path := ExpandConstant('{tmp}\cmd.bat');
+    Exec(ExpandConstant(Path), '', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    
+    Output := ExpandConstant('{tmp}\output.txt'); 
+    if LoadStringFromFile(ExpandConstant(Output), Str) then
+    begin
+      if (Str = nil) then 
+        Result := False
+    end; 
+  end;
+end;  
       {
 procedure InheritBoundsRect(ASource, ATarget: TControl);
 begin
@@ -1099,6 +1126,12 @@ begin
       end;
 
       AppHostEdit.Text := 'localhost';
+
+      if (DoTestConnection() = False) then
+      begin
+        Msg := Msg + 'Connection failed!' + #10;
+      end;
+
     end else if ((AppHostPage <> nil) and (CurPageID = AppHostPage.ID)) then begin
       Msg := '';
 
